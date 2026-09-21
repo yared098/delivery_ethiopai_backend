@@ -5,6 +5,9 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AfroMessageModule } from './integrations/afromessage/afromessage.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { RegionsModule } from './regions/regions.module';
+import { BranchesModule } from './branches/branches.module';
+import { AdminModule } from './admin/admin.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -14,9 +17,10 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     AfroMessageModule,
     UsersModule,
     AuthModule,
+    RegionsModule,
+    BranchesModule,
+    AdminModule,
   ],
-  providers: [
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
-  ],
+  providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}
