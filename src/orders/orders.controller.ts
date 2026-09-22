@@ -8,7 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { IsNumber } from 'class-validator';
+import { IsNumber, IsString } from 'class-validator';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
@@ -28,10 +28,19 @@ class LocationDto {
   lng: number;
 }
 
+class AssignCourierDto {
+  @IsString()
+  courierId: string;
+}
+
 @Controller('admin/orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrdersController {
   constructor(private orders: OrdersService) {}
+
+  // ══════════════════════════════════════════════════
+  // CRUD
+  // ══════════════════════════════════════════════════
 
   @Post()
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
@@ -61,6 +70,36 @@ export class OrdersController {
     return this.orders.update(id, dto, user);
   }
 
+  // ══════════════════════════════════════════════════
+  // COURIER ASSIGNMENT
+  // ══════════════════════════════════════════════════
+
+  @Post(':id/assign-courier')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+  assignCourier(
+    @Param('id') id: string,
+    @Body() dto: AssignCourierDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.orders.assignCourier(id, dto.courierId, user);
+  }
+
+  @Post(':id/auto-assign')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+  autoAssign(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.orders.autoAssignCourier(id, user);
+  }
+
+  @Post(':id/unassign-courier')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+  unassignCourier(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.orders.unassignCourier(id, user);
+  }
+
+  // ══════════════════════════════════════════════════
+  // LOCATION / TRACKING
+  // ══════════════════════════════════════════════════
+
   @Post(':id/location')
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
   updateLocation(
@@ -71,6 +110,10 @@ export class OrdersController {
     return this.orders.updateCourierLocation(id, dto.lat, dto.lng, user);
   }
 
+  // ══════════════════════════════════════════════════
+  // RECEIVER LINK
+  // ══════════════════════════════════════════════════
+
   @Post(':id/send-receiver-link')
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
   sendReceiverLink(
@@ -80,6 +123,10 @@ export class OrdersController {
   ) {
     return this.orders.sendReceiverLink(id, dto, user);
   }
+
+  // ══════════════════════════════════════════════════
+  // CANCEL
+  // ══════════════════════════════════════════════════
 
   @Post(':id/cancel')
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)

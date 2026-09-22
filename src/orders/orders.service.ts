@@ -27,7 +27,7 @@ export class OrdersService {
     private tracking: TrackingNumberService,
     private pricing: PricingService,
     private receiverLinks: ReceiverLinksService,
-    private trackingWs: TrackingGateway,   // ← injected
+    private trackingWs: TrackingGateway,
   ) {}
 
   private normalizePhone(phone: string): string {
@@ -205,6 +205,7 @@ export class OrdersService {
       return created;
     });
 
+    // ─── Receiver link ───
     let receiverLink: any = null;
     if (dto.sendReceiverLink && !receiverComplete) {
       receiverLink = await this.receiverLinks.createForOrder(
@@ -214,7 +215,89 @@ export class OrdersService {
       );
     }
 
-    return { order, receiverLink };
+    // ─── Courier assignment ───
+    let courierAssigned: any = null;
+
+    // Only assign if receiver location is known (order is assignable)
+    if (status === OrderStatus.PENDING_PAYMENT) {
+      if (dto.courierId) {
+        // Manual assignment
+        try {
+          const courier = await this.prisma.courier.findUnique({
+            where: { id: dto.courierId },
+          });
+
+          if (courier && courier.status === 'APPROVED' && courier.isActive) {
+            await this.prisma.$transaction([
+              this.prisma.order.update({
+                where: { id: order.id },
+                data: {
+                  courierId: dto.courierId,
+                  status: OrderStatus.ASSIGNED,
+                  assignedAt: new Date(),
+                },
+              }),
+              this.prisma.orderEvent.create({
+                data: {
+                  orderId: order.id,
+                  status: OrderStatus.ASSIGNED,
+                  note: `Assigned to ${courier.name}`,
+                  actorType: AccountType.STAFF,
+                  actorId: currentUser.id,
+                  actorName: currentUser.name,
+                  isPublic: true,
+                },
+              }),
+            ]);
+
+            // Update local order state
+            (order as any).status = OrderStatus.ASSIGNED;
+            (order as any).courierId = dto.courierId;
+            (order as any).courier = {
+              id: courier.id,
+              name: courier.name,
+              phone: courier.phone,
+            };
+            courierAssigned = courier;
+
+            // Broadcast via WebSocket
+            this.trackingWs.broadcastStatusChange(order.id, {
+              status: OrderStatus.ASSIGNED,
+              note: `Courier ${courier.name} assigned`,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (err) {
+          // Non-fatal — order was created, assignment failed silently
+          console.error('Courier manual assignment failed:', err);
+        }
+      } else if (dto.autoAssignCourier) {
+        // Auto-assignment
+        try {
+          await this.autoAssignCourier(order.id, currentUser);
+
+          // Refetch to get latest state
+          const updated = await this.prisma.order.findUnique({
+            where: { id: order.id },
+            include: {
+              courier: { select: { id: true, name: true, phone: true } },
+            },
+          });
+
+          if (updated) {
+            (order as any).status = updated.status;
+            (order as any).courierId = updated.courierId;
+            (order as any).courier = updated.courier;
+            courierAssigned = updated.courier;
+          }
+        } catch (err) {
+          // Non-fatal — auto-assign failed but order created
+          console.error('Courier auto-assignment failed:', err);
+        }
+      }
+    }
+
+    return { order, receiverLink, courierAssigned };
   }
 
   // ══════════════════════════════════════════════════
@@ -341,7 +424,6 @@ export class OrdersService {
 
     const updated = await this.prisma.order.update({ where: { id }, data });
 
-    // ✅ Broadcast status change
     this.trackingWs.broadcastStatusChange(id, {
       status: updated.status,
       note: 'Order updated',
@@ -352,7 +434,146 @@ export class OrdersService {
   }
 
   // ══════════════════════════════════════════════════
-  // UPDATE COURIER LOCATION (real-time tracking)
+  // ASSIGN COURIER (manual)
+  // ══════════════════════════════════════════════════
+  async assignCourier(orderId: string, courierId: string, currentUser: any) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (
+      order.status === OrderStatus.DELIVERED ||
+      order.status === OrderStatus.CANCELLED
+    ) {
+      throw new BadRequestException(`Cannot assign courier to a ${order.status} order`);
+    }
+
+    if (order.courierId) {
+      throw new BadRequestException('Order already has a courier assigned');
+    }
+
+    const courier = await this.prisma.courier.findUnique({ where: { id: courierId } });
+    if (!courier) throw new NotFoundException('Courier not found');
+
+    if (courier.status !== 'APPROVED') {
+      throw new BadRequestException('Courier must be approved');
+    }
+
+    if (!courier.isActive) {
+      throw new BadRequestException('Courier is suspended');
+    }
+
+    if (courier.maxWeightKg != null && order.totalWeightKg > courier.maxWeightKg) {
+      throw new BadRequestException(
+        `Courier capacity: ${courier.maxWeightKg} kg, order: ${order.totalWeightKg} kg`,
+      );
+    }
+
+    if (order.isFragile && !courier.handlesFragile) {
+      throw new BadRequestException('Courier does not handle fragile items');
+    }
+
+    if (order.isRefrigerated && !courier.handlesRefrigerated) {
+      throw new BadRequestException('Courier does not handle refrigerated items');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const o = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          courierId,
+          status: OrderStatus.ASSIGNED,
+          assignedAt: new Date(),
+        },
+        include: {
+          courier: { select: { id: true, name: true, phone: true } },
+        },
+      });
+
+      await tx.orderEvent.create({
+        data: {
+          orderId,
+          status: OrderStatus.ASSIGNED,
+          note: `Assigned to courier ${courier.name}`,
+          actorType: AccountType.STAFF,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          isPublic: true,
+        },
+      });
+
+      return o;
+    });
+
+    this.trackingWs.broadcastStatusChange(orderId, {
+      status: OrderStatus.ASSIGNED,
+      note: `Courier ${courier.name} assigned`,
+      timestamp: new Date().toISOString(),
+    });
+
+    return updated;
+  }
+
+  // ══════════════════════════════════════════════════
+  // AUTO-ASSIGN COURIER
+  // ══════════════════════════════════════════════════
+  async autoAssignCourier(orderId: string, currentUser: any) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.courierId) {
+      throw new BadRequestException('Order already has a courier');
+    }
+
+    // Determine required vehicles by weight
+    let requiredVehicles: any[] = [];
+    if (order.totalWeightKg <= 25) {
+      requiredVehicles = ['MOTORCYCLE', 'BICYCLE', 'CAR'];
+    } else if (order.totalWeightKg <= 500) {
+      requiredVehicles = ['CAR', 'VAN'];
+    } else {
+      requiredVehicles = ['VAN', 'TRUCK'];
+    }
+
+    const where: any = {
+      status: 'APPROVED',
+      isActive: true,
+      vehicleType: { in: requiredVehicles },
+    };
+
+    if (order.originBranchId) where.branchId = order.originBranchId;
+    if (order.isFragile) where.handlesFragile = true;
+    if (order.isRefrigerated) where.handlesRefrigerated = true;
+
+    const candidates = await this.prisma.courier.findMany({ where });
+
+    if (!candidates.length) {
+      throw new BadRequestException('No available courier matching requirements');
+    }
+
+    // Sort by distance from sender (if GPS is known)
+    const sorted = candidates
+      .map((c) => ({
+        ...c,
+        distance:
+          c.currentLat != null &&
+          c.currentLng != null &&
+          order.senderLat != null &&
+          order.senderLng != null
+            ? this.pricing.distanceKm(
+                c.currentLat,
+                c.currentLng,
+                order.senderLat,
+                order.senderLng,
+              )
+            : 999999,
+      }))
+      .sort((a, b) => a.distance - b.distance);
+
+    return this.assignCourier(orderId, sorted[0].id, currentUser);
+  }
+
+  // ══════════════════════════════════════════════════
+  // UPDATE COURIER LOCATION
   // ══════════════════════════════════════════════════
   async updateCourierLocation(
     orderId: string,
@@ -364,12 +585,10 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
     if (!order.courierId) throw new BadRequestException('No courier assigned');
 
-    // Ethiopia bounds check
     if (lat < 3.4 || lat > 14.9 || lng < 32.9 || lng > 48.0) {
       throw new BadRequestException('Coordinates outside Ethiopia');
     }
 
-    // Distance to receiver
     let distanceToReceiver: number | undefined;
     let etaMinutes: number | undefined;
 
@@ -380,10 +599,9 @@ export class OrdersService {
         order.receiverLat,
         order.receiverLng,
       );
-      etaMinutes = Math.ceil((distanceToReceiver / 30) * 60); // assume 30 km/h
+      etaMinutes = Math.ceil((distanceToReceiver / 30) * 60);
     }
 
-    // Update courier + order
     await this.prisma.$transaction([
       this.prisma.courier.update({
         where: { id: order.courierId },
@@ -407,7 +625,6 @@ export class OrdersService {
       }),
     ]);
 
-    // ✅ Broadcast to WebSocket subscribers
     this.trackingWs.broadcastLocationUpdate(orderId, {
       lat,
       lng,
@@ -418,7 +635,6 @@ export class OrdersService {
       status: order.status,
     });
 
-    // ✅ Proximity alerts
     if (distanceToReceiver != null) {
       const distanceMeters = distanceToReceiver * 1000;
       if (distanceMeters < 20) {
@@ -513,7 +729,6 @@ export class OrdersService {
       });
     });
 
-    // ✅ Broadcast
     this.trackingWs.broadcastOrderEnd(id, {
       outcome: 'CANCELLED',
       message: 'Order cancelled by staff',
@@ -521,4 +736,69 @@ export class OrdersService {
 
     return { message: 'Order cancelled' };
   }
+  
+
+  // ══════════════════════════════════════════════════
+  // UNASSIGN COURIER
+  // ══════════════════════════════════════════════════
+  async unassignCourier(orderId: string, currentUser: any) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (!order.courierId) {
+      throw new BadRequestException('Order has no courier assigned');
+    }
+
+    const blocked: OrderStatus[] = [
+      OrderStatus.PICKED_UP,
+      OrderStatus.IN_TRANSIT,
+      OrderStatus.OUT_FOR_DELIVERY,
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
+    ];
+
+    if (blocked.includes(order.status)) {
+      throw new BadRequestException(
+        `Cannot unassign courier when order is ${order.status.replace(/_/g, ' ')}`,
+      );
+    }
+
+    const previousCourier = await this.prisma.courier.findUnique({
+      where: { id: order.courierId },
+    });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.order.update({
+        where: { id: orderId },
+        data: {
+          courierId: null,
+          status: OrderStatus.PENDING_PAYMENT,
+          assignedAt: null,
+        },
+      });
+
+      await tx.orderEvent.create({
+        data: {
+          orderId,
+          status: OrderStatus.PENDING_PAYMENT,
+          note: previousCourier
+            ? `Courier ${previousCourier.name} unassigned`
+            : 'Courier unassigned',
+          actorType: AccountType.STAFF,
+          actorId: currentUser.id,
+          actorName: currentUser.name,
+          isPublic: true,
+        },
+      });
+    });
+
+    this.trackingWs.broadcastStatusChange(orderId, {
+      status: OrderStatus.PENDING_PAYMENT,
+      note: 'Courier unassigned',
+      timestamp: new Date().toISOString(),
+    });
+
+    return { message: 'Courier unassigned' };
+  }
+
 }

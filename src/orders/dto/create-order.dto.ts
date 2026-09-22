@@ -168,4 +168,12 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  courierId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  autoAssignCourier?: boolean;
 }
