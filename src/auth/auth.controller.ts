@@ -6,45 +6,72 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import { IsString } from 'class-validator';
 import { AuthService } from './auth.service';
 import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { PasswordLoginDto } from './dto/password-login.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+
+class StaffLoginStep1Dto {
+  @IsString()
+  phone: string;
+
+  @IsString()
+  password: string;
+}
+
+class StaffLoginStep2Dto {
+  @IsString()
+  tempToken: string;
+
+  @IsString()
+  code: string;
+}
 
 @Controller('auth')
 export class AuthController {
   constructor(private auth: AuthService) {}
 
   // ══════════════════════════════════════════════════
-  // STAFF (Super Admin, Regional Admin, Branch Manager)
+  // SUPER ADMIN (Phone + OTP only)
   // ══════════════════════════════════════════════════
 
   @Public()
-  @Post('staff/otp/request')
+  @Post('super-admin/otp/request')
   @HttpCode(HttpStatus.OK)
-  staffRequestOtp(@Body() dto: RequestOtpDto) {
-    return this.auth.requestStaffOtp(dto.phone);
+  superAdminRequestOtp(@Body() dto: RequestOtpDto) {
+    return this.auth.requestSuperAdminOtp(dto.phone);
   }
 
   @Public()
-  @Post('staff/otp/verify')
+  @Post('super-admin/otp/verify')
   @HttpCode(HttpStatus.OK)
-  staffVerifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
-    return this.auth.verifyStaffOtp(dto.phone, dto.code, this.meta(req));
-  }
-
-  @Public()
-  @Post('staff/password/login')
-  @HttpCode(HttpStatus.OK)
-  staffPasswordLogin(@Body() dto: PasswordLoginDto, @Req() req: any) {
-    return this.auth.staffPasswordLogin(dto.phone, dto.password, this.meta(req));
+  superAdminVerifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
+    return this.auth.verifySuperAdminOtp(dto.phone, dto.code, this.meta(req));
   }
 
   // ══════════════════════════════════════════════════
-  // COURIER
+  // STAFF (Phone + Password → OTP)
+  // ══════════════════════════════════════════════════
+
+  @Public()
+  @Post('staff/login')
+  @HttpCode(HttpStatus.OK)
+  staffLogin(@Body() dto: StaffLoginStep1Dto) {
+    return this.auth.staffLoginStep1(dto.phone, dto.password);
+  }
+
+  @Public()
+  @Post('staff/login/verify')
+  @HttpCode(HttpStatus.OK)
+  staffLoginVerify(@Body() dto: StaffLoginStep2Dto, @Req() req: any) {
+    return this.auth.staffLoginStep2(dto.tempToken, dto.code, this.meta(req));
+  }
+
+  // ══════════════════════════════════════════════════
+  // COURIER (Phone + OTP)
   // ══════════════════════════════════════════════════
 
   @Public()
@@ -62,7 +89,7 @@ export class AuthController {
   }
 
   // ══════════════════════════════════════════════════
-  // CUSTOMER
+  // CUSTOMER (Phone + OTP)
   // ══════════════════════════════════════════════════
 
   @Public()

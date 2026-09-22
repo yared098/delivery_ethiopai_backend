@@ -2,12 +2,16 @@ import {
   Injectable,
   UnauthorizedException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
+import { randomUUID } from 'crypto';
+import { Redis } from 'ioredis';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AccountType, CourierStatus } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import { AccountType, CourierStatus, StaffRole } from '@prisma/client';
 
 interface Meta {
   userAgent?: string;
@@ -16,11 +20,16 @@ interface Meta {
 
 @Injectable()
 export class AuthService {
+  private redis: Redis;
+
   constructor(
     private otp: OtpService,
     private tokens: TokenService,
     private prisma: PrismaService,
-  ) {}
+    private config: ConfigService,
+  ) {
+    this.redis = new Redis(this.config.get<string>('REDIS_URL')!);
+  }
 
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
@@ -31,22 +40,35 @@ export class AuthService {
   }
 
   // ══════════════════════════════════════════════════
-  // STAFF
+  // SUPER ADMIN LOGIN (Phone + OTP only)
   // ══════════════════════════════════════════════════
-  async requestStaffOtp(phone: string) {
+
+  async requestSuperAdminOtp(phone: string) {
     const normalized = this.normalizePhone(phone);
     const staff = await this.prisma.staff.findUnique({ where: { phone: normalized } });
+
     if (!staff) throw new NotFoundException('No staff account with this phone');
     if (!staff.isActive) throw new UnauthorizedException('Account suspended');
+
+    if (staff.role !== StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Only Super Admin uses this login. Staff must use phone + password.',
+      );
+    }
+
     await this.otp.requestOtp(phone, AccountType.STAFF, 'login', { staffId: staff.id });
     return { message: 'OTP sent' };
   }
 
-  async verifyStaffOtp(phone: string, code: string, meta: Meta) {
+  async verifySuperAdminOtp(phone: string, code: string, meta: Meta) {
     const normalized = await this.otp.verifyOtp(phone, code, AccountType.STAFF, 'login');
     const staff = await this.prisma.staff.findUnique({ where: { phone: normalized } });
+
     if (!staff) throw new UnauthorizedException('Staff not found');
     if (!staff.isActive) throw new UnauthorizedException('Account suspended');
+    if (staff.role !== StaffRole.SUPER_ADMIN) {
+      throw new UnauthorizedException('Not a Super Admin account');
+    }
 
     if (!staff.phoneVerified) {
       await this.prisma.staff.update({
@@ -69,17 +91,94 @@ export class AuthService {
     return { account: this.publicStaff(staff), accountType: AccountType.STAFF, ...tokens };
   }
 
-  async staffPasswordLogin(phone: string, password: string, meta: Meta) {
+  // ══════════════════════════════════════════════════
+  // STAFF LOGIN (Phone + Password → OTP)
+  // REGIONAL_ADMIN, BRANCH_MANAGER
+  // ══════════════════════════════════════════════════
+
+  /**
+   * STEP 1: Verify password, then send OTP
+   */
+  async staffLoginStep1(phone: string, password: string) {
     const normalized = this.normalizePhone(phone);
     const staff = await this.prisma.staff.findUnique({ where: { phone: normalized } });
 
-    if (!staff || !staff.passwordHash) {
-      throw new UnauthorizedException('Invalid credentials');
+    if (!staff) {
+      throw new UnauthorizedException('Invalid phone or password');
     }
+    if (!staff.isActive) {
+      throw new UnauthorizedException('Account suspended. Contact Super Admin.');
+    }
+    if (staff.role === StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Super Admin uses OTP-only login. Use the Super Admin tab.',
+      );
+    }
+    if (!staff.passwordHash) {
+      throw new UnauthorizedException(
+        'No password set. Contact Super Admin to set your password.',
+      );
+    }
+
+    // Verify password
+    const valid = await argon2.verify(staff.passwordHash, password);
+    if (!valid) {
+      throw new UnauthorizedException('Invalid phone or password');
+    }
+
+    // Generate one-time temp token (5 minutes)
+    const tempToken = randomUUID();
+    await this.redis.setex(
+      `staff:login:${tempToken}`,
+      300,
+      JSON.stringify({
+        staffId: staff.id,
+        phone: normalized,
+        createdAt: Date.now(),
+      }),
+    );
+
+    // Send OTP to the staff phone
+    await this.otp.requestOtp(phone, AccountType.STAFF, 'login', { staffId: staff.id });
+
+    return {
+      requiresOtp: true,
+      tempToken,
+      phone: normalized,
+      maskedPhone: this.maskPhone(normalized),
+      message: 'OTP sent to your phone',
+    };
+  }
+
+  /**
+   * STEP 2: Verify OTP with temp token, then issue JWT
+   */
+  async staffLoginStep2(tempToken: string, code: string, meta: Meta) {
+    const stored = await this.redis.get(`staff:login:${tempToken}`);
+    if (!stored) {
+      throw new UnauthorizedException('Login session expired. Please try again.');
+    }
+
+    const { staffId, phone } = JSON.parse(stored);
+
+    // Verify OTP
+    await this.otp.verifyOtp(phone, code, AccountType.STAFF, 'login');
+
+    // Fetch staff
+    const staff = await this.prisma.staff.findUnique({ where: { id: staffId } });
+    if (!staff) throw new UnauthorizedException('Staff not found');
     if (!staff.isActive) throw new UnauthorizedException('Account suspended');
 
-    const valid = await argon2.verify(staff.passwordHash, password);
-    if (!valid) throw new UnauthorizedException('Invalid credentials');
+    // Consume the temp token
+    await this.redis.del(`staff:login:${tempToken}`);
+
+    // Mark phone as verified
+    if (!staff.phoneVerified) {
+      await this.prisma.staff.update({
+        where: { id: staff.id },
+        data: { phoneVerified: true },
+      });
+    }
 
     const tokens = await this.tokens.issueTokens(
       {
@@ -101,8 +200,9 @@ export class AuthService {
   }
 
   // ══════════════════════════════════════════════════
-  // COURIER
+  // COURIER (Phone + OTP)
   // ══════════════════════════════════════════════════
+
   async requestCourierOtp(phone: string) {
     const normalized = this.normalizePhone(phone);
     const courier = await this.prisma.courier.findUnique({ where: { phone: normalized } });
@@ -145,8 +245,9 @@ export class AuthService {
   }
 
   // ══════════════════════════════════════════════════
-  // CUSTOMER
+  // CUSTOMER (Phone + OTP)
   // ══════════════════════════════════════════════════
+
   async requestCustomerOtp(phone: string) {
     await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
     return { message: 'OTP sent' };
@@ -180,6 +281,7 @@ export class AuthService {
   // ══════════════════════════════════════════════════
   // SESSION
   // ══════════════════════════════════════════════════
+
   async refresh(refreshToken: string, meta: Meta) {
     return this.tokens.rotate(refreshToken, meta);
   }
@@ -192,6 +294,15 @@ export class AuthService {
   async logoutAll(accountId: string, accountType: AccountType) {
     await this.tokens.revokeAll(accountId, accountType);
     return { message: 'All sessions revoked' };
+  }
+
+  // ══════════════════════════════════════════════════
+  // HELPERS
+  // ══════════════════════════════════════════════════
+
+  private maskPhone(phone: string): string {
+    if (phone.length < 6) return phone;
+    return phone.slice(0, 4) + '****' + phone.slice(-2);
   }
 
   private publicStaff(s: any) {
