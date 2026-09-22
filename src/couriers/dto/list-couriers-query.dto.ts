@@ -1,11 +1,15 @@
-import { IsOptional, IsEnum, IsInt, Min, Max, IsString } from 'class-validator';
+import { IsOptional, IsEnum, IsString, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Role } from '@prisma/client';
+import { CourierStatus, VehicleType } from '@prisma/client';
 
-export class ListUsersQueryDto {
+export class ListCouriersQueryDto {
   @IsOptional()
-  @IsEnum(Role)
-  role?: Role;
+  @IsEnum(CourierStatus)
+  status?: CourierStatus;
+
+  @IsOptional()
+  @IsEnum(VehicleType)
+  vehicleType?: VehicleType;
 
   @IsOptional()
   @IsString()

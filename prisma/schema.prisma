@@ -7,101 +7,744 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
+// ══════════════════════════════════════════════════
+// ENUMS
+// ══════════════════════════════════════════════════
+
+enum StaffRole {
   SUPER_ADMIN
   REGIONAL_ADMIN
   BRANCH_MANAGER
+}
+
+enum CourierStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum VehicleType {
+  MOTORCYCLE
+  BICYCLE
+  CAR
+  VAN
+  TRUCK
+}
+
+enum AccountType {
+  STAFF
   COURIER
   CUSTOMER
 }
 
-model User {
-  id            String   @id @default(cuid())
-  phone         String?  @unique
-  name          String?
-  email         String?  @unique
-  googleId      String?  @unique
-  passwordHash  String?
-  role          Role     @default(CUSTOMER)
-  regionId      String?
-  branchId      String?
-  telegramId    String?  @unique
-  isActive      Boolean  @default(true)
-  phoneVerified Boolean  @default(false)
-  emailVerified Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+enum PaymentProviderType {
+  MOBILE_MONEY
+  CARD
+  BANK
+  CASH
+  WALLET
+  CRYPTO
+}
 
-  region        Region?        @relation(fields: [regionId], references: [id])
-  branch        Branch?        @relation(fields: [branchId], references: [id])
+enum OrderStatus {
+  DRAFT
+  AWAITING_RECEIVER_LOCATION
+  PENDING_PAYMENT
+  PAID
+  ASSIGNED
+  PICKED_UP
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  FAILED
+  CANCELLED
+  RETURNED
+}
+
+enum ItemType {
+  PARCEL
+  DOCUMENT
+  BOX
+  ENVELOPE
+  FOOD
+  ELECTRONICS
+  CLOTHING
+  MEDICINE
+  FRAGILE_ITEM
+  OTHER
+}
+
+enum PaymentMethod {
+  CASH
+  TELEBIRR
+  CHAPA
+  CBE_BIRR
+  BANK_TRANSFER
+  PREPAID
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum PaymentParty {
+  SENDER
+  RECEIVER
+  SPLIT
+}
+
+enum ReceiverLinkStatus {
+  ACTIVE
+  USED
+  EXPIRED
+  REVOKED
+}
+
+enum EarningType {
+  DELIVERY
+  BONUS
+  PENALTY
+  TIP
+  ADJUSTMENT
+}
+
+enum EarningStatus {
+  PENDING
+  RELEASED
+  PAID
+  CANCELLED
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+}
+
+// ══════════════════════════════════════════════════
+// STAFF
+// ══════════════════════════════════════════════════
+
+model Staff {
+  id                 String    @id @default(cuid())
+  phone              String    @unique
+  name               String
+  email              String?   @unique
+  passwordHash       String?
+  passwordChangedAt  DateTime?
+  mustChangePassword Boolean   @default(false)
+
+  role     StaffRole
+  regionId String?
+  branchId String?
+
+  isActive      Boolean   @default(true)
+  phoneVerified Boolean   @default(false)
+  suspendedAt   DateTime?
+  suspendedById String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  region Region? @relation(fields: [regionId], references: [id])
+  branch Branch? @relation(fields: [branchId], references: [id])
+
+  // Self-relations
+  createdBy   Staff?  @relation("StaffCreatedBy", fields: [createdById], references: [id])
+  created     Staff[] @relation("StaffCreatedBy")
+  suspendedBy Staff?  @relation("StaffSuspendedBy", fields: [suspendedById], references: [id])
+  suspended   Staff[] @relation("StaffSuspendedBy")
+
+  // Audit back-relations
+  regionsCreated      Region[]          @relation("RegionCreatedBy")
+  branchesCreated     Branch[]          @relation("BranchCreatedBy")
+  couriersCreated     Courier[]         @relation("CourierCreatedBy")
+  couriersApproved    Courier[]         @relation("CourierApprovedBy")
+  couriersRejected    Courier[]         @relation("CourierRejectedBy")
+  providersCreated    PaymentProvider[] @relation("ProviderCreatedBy")
+  providersUpdated    PaymentProvider[] @relation("ProviderUpdatedBy")
+  customersRegistered Customer[]        @relation("CustomerRegisteredBy")
+  ordersCreatedBy     Order[]           @relation("OrderCreatedBy")
+  paymentsCreated     Payment[]         @relation("PaymentCreatedBy")
+  payoutsProcessed    Payout[]          @relation("PayoutProcessedBy")
+
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
 
   @@index([phone])
-  @@index([email])
-  @@index([googleId])
+  @@index([role])
   @@index([regionId])
-  @@map("users")
+  @@map("staff")
 }
 
-model Region {
-  id        String   @id @default(cuid())
-  name      String   @unique
-  code      String   @unique
+// ══════════════════════════════════════════════════
+// COURIER
+// ══════════════════════════════════════════════════
+
+model Courier {
+  id String @id @default(cuid())
+
+  phone              String    @unique
+  name               String
+  email              String?   @unique
+  passwordHash       String?
+  passwordChangedAt  DateTime?
+  mustChangePassword Boolean   @default(false)
+
+  regionId String
+  branchId String
+
+  vehicleType   VehicleType
+  vehiclePlate  String?
+  vehicleModel  String?
+  vehicleColor  String?
+  vehicleYear   Int?
+  licenseNumber String?
+
+  maxWeightKg         Float?
+  maxVolumeL          Float?
+  handlesFragile      Boolean @default(false)
+  handlesRefrigerated Boolean @default(false)
+
+  nationalIdNumber   String?
+  nationalIdImageUrl String?
+  licenseImageUrl    String?
+  vehicleImageUrl    String?
+  selfieUrl          String?
+
+  status          CourierStatus @default(PENDING)
+  rejectionReason String?
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectedById    String?
+  rejectedAt      DateTime?
+
+  isActive      Boolean   @default(true)
+  phoneVerified Boolean   @default(false)
+  suspendedAt   DateTime?
+  suspendedById String?
+
+  rating          Float @default(5.0)
+  totalDeliveries Int   @default(0)
+  totalFailed     Int   @default(0)
+
+  isOnline   Boolean   @default(false)
+  currentLat Float?
+  currentLng Float?
+  lastSeenAt DateTime?
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id])
+  branch Branch @relation(fields: [branchId], references: [id])
+
+  createdBy  Staff? @relation("CourierCreatedBy", fields: [createdById], references: [id])
+  approvedBy Staff? @relation("CourierApprovedBy", fields: [approvedById], references: [id])
+  rejectedBy Staff? @relation("CourierRejectedBy", fields: [rejectedById], references: [id])
+
+  // Order & earnings back-relations
+  orders   Order[]
+  earnings CourierEarning[]
+  payouts  Payout[]
+
+  refreshTokens RefreshToken[]
+  otpCodes      OtpCode[]
+
+  @@index([phone])
+  @@index([regionId])
+  @@index([branchId])
+  @@index([status])
+  @@map("couriers")
+}
+
+// ══════════════════════════════════════════════════
+// CUSTOMER (sender / receiver)
+// ══════════════════════════════════════════════════
+
+model Customer {
+  id            String  @id @default(cuid())
+  phone         String  @unique
+  name          String?
+  email         String? @unique
+  googleId      String? @unique
+  telegramId    String? @unique
+  phoneVerified Boolean @default(false)
+  emailVerified Boolean @default(false)
+  isActive      Boolean @default(true)
+
+  // Default address (optional)
+  defaultAddress String?
+  defaultLat     Float?
+  defaultLng     Float?
+
+  // Registration source
+  registeredById   String?
+  registeredByType AccountType?
+
   createdAt DateTime @default(now())
-  users     User[]
-  branches  Branch[]
+  updatedAt DateTime @updatedAt
+
+  registeredBy Staff? @relation("CustomerRegisteredBy", fields: [registeredById], references: [id])
+
+  // Order back-relations (as sender / as receiver)
+  ordersSent     Order[] @relation("OrderSender")
+  ordersReceived Order[] @relation("OrderReceiver")
+
+  refreshTokens RefreshToken[]
+  otpCodes      OtpCode[]
+
+  @@index([phone])
+  @@index([registeredById])
+  @@map("customers")
+}
+
+// ══════════════════════════════════════════════════
+// REGION
+// ══════════════════════════════════════════════════
+
+model Region {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  code        String   @unique
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  createdBy Staff? @relation("RegionCreatedBy", fields: [createdById], references: [id])
+
+  staff    Staff[]
+  branches Branch[]
+  couriers Courier[]
 
   @@map("regions")
 }
 
-model Branch {
-  id        String   @id @default(cuid())
-  regionId  String
-  name      String
-  address   String?
-  lat       Float?
-  lng       Float?
-  createdAt DateTime @default(now())
+// ══════════════════════════════════════════════════
+// BRANCH
+// ══════════════════════════════════════════════════
 
-  region Region @relation(fields: [regionId], references: [id])
-  users  User[]
+model Branch {
+  id          String   @id @default(cuid())
+  regionId    String
+  name        String
+  code        String   @unique
+  city        String?
+  woreda      String?
+  address     String?
+  phone       String?
+  lat         Float?
+  lng         Float?
+  isActive    Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  region    Region    @relation(fields: [regionId], references: [id])
+  createdBy Staff?    @relation("BranchCreatedBy", fields: [createdById], references: [id])
+  staff     Staff[]
+  couriers  Courier[]
+
+  // Order back-relations
+  ordersOrigin Order[] @relation("OrderOrigin")
+  ordersDest   Order[] @relation("OrderDest")
 
   @@index([regionId])
+  @@index([code])
   @@map("branches")
 }
 
-model OtpCode {
-  id        String   @id @default(cuid())
-  phone     String
-  codeHash  String
-  purpose   String   @default("login")
-  attempts  Int      @default(0)
-  used      Boolean  @default(false)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
+// ══════════════════════════════════════════════════
+// OTP / REFRESH
+// ══════════════════════════════════════════════════
 
-  @@index([phone])
+model OtpCode {
+  id          String      @id @default(cuid())
+  phone       String
+  accountType AccountType
+  codeHash    String
+  purpose     String      @default("login")
+  attempts    Int         @default(0)
+  used        Boolean     @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime    @default(now())
+
+  staffId    String?
+  courierId  String?
+  customerId String?
+
+  staff    Staff?    @relation(fields: [staffId], references: [id])
+  courier  Courier?  @relation(fields: [courierId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@index([phone, accountType])
   @@index([expiresAt])
   @@map("otp_codes")
 }
 
 model RefreshToken {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String    @unique
-  family    String
-  userAgent String?
-  ipAddress String?
-  expiresAt DateTime
-  revokedAt DateTime?
-  createdAt DateTime  @default(now())
+  id          String      @id @default(cuid())
+  accountId   String
+  accountType AccountType
+  tokenHash   String      @unique
+  family      String
+  userAgent   String?
+  ipAddress   String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime    @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  staffId    String?
+  courierId  String?
+  customerId String?
 
-  @@index([userId])
+  staff    Staff?    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  courier  Courier?  @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, accountType])
   @@index([family])
   @@map("refresh_tokens")
+}
+
+// ══════════════════════════════════════════════════
+// PAYMENT PROVIDER
+// ══════════════════════════════════════════════════
+
+model PaymentProvider {
+  id          String              @id @default(cuid())
+  code        String              @unique
+  name        String
+  description String?
+  type        PaymentProviderType
+
+  logoUrl   String?
+  color     String?
+  sortOrder Int     @default(0)
+
+  isEnabled  Boolean @default(false)
+  isTestMode Boolean @default(true)
+  feePercent Float   @default(0)
+  feeFixed   Float   @default(0)
+  minAmount  Float?
+  maxAmount  Float?
+
+  apiKey     String?
+  apiSecret  String?
+  merchantId String?
+  webhookUrl String?
+  configJson Json?
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy Staff? @relation("ProviderCreatedBy", fields: [createdById], references: [id])
+  updatedBy Staff? @relation("ProviderUpdatedBy", fields: [updatedById], references: [id])
+
+  @@index([code])
+  @@index([isEnabled])
+  @@map("payment_providers")
+}
+
+// ══════════════════════════════════════════════════
+// ORDER
+// ══════════════════════════════════════════════════
+
+model Order {
+  id             String @id @default(cuid())
+  trackingNumber String @unique
+
+  // ── Sender ──
+  senderId       String?
+  senderName     String
+  senderPhone    String
+  senderAddress  String?
+  senderLat      Float?
+  senderLng      Float?
+  senderBranchId String?
+
+  // ── Receiver ──
+  receiverId             String?
+  receiverName           String?
+  receiverPhone          String
+  receiverAddress        String?
+  receiverLat            Float?
+  receiverLng            Float?
+  receiverLocationSource String?
+
+  // ── Logistics ──
+  originBranchId String?
+  destBranchId   String?
+  courierId      String?
+  distanceKm     Float?
+
+  // ── Package total ──
+  totalWeightKg      Float   @default(0)
+  totalVolumeL       Float   @default(0)
+  isFragile          Boolean @default(false)
+  isRefrigerated     Boolean @default(false)
+  packageDescription String?
+
+  // ── Pricing ──
+  deliveryFee      Float @default(0)
+  codAmount        Float @default(0)
+  courierEarning   Float @default(0)
+  platformFee      Float @default(0)
+  pricingBreakdown Json?
+
+  // ── Payment ──
+  paymentParty  PaymentParty   @default(SENDER)
+  paymentMethod PaymentMethod?
+  paymentStatus PaymentStatus  @default(PENDING)
+
+  // ── Status & Timeline ──
+  status      OrderStatus @default(DRAFT)
+  createdAt   DateTime    @default(now())
+  paidAt      DateTime?
+  assignedAt  DateTime?
+  pickedUpAt  DateTime?
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  cancelledAt DateTime?
+
+  // ── Delivery proof ──
+  deliveryPhotoUrl     String?
+  deliverySignatureUrl String?
+  deliveryOtp          String?
+  receiverConfirmed    Boolean @default(false)
+  failureReason        String?
+
+  // ── Tracking ──
+  trackingUrl   String?
+  trackingToken String? @unique // ← for public tracking link
+
+  // ── Live tracking ──
+  lastCourierLat   Float?
+  lastCourierLng   Float?
+  lastTrackedAt    DateTime?
+  estimatedArrival DateTime?
+
+  // ── Audit ──
+  createdById String?
+
+  // ── Relations ──
+  sender       Customer? @relation("OrderSender", fields: [senderId], references: [id])
+  receiver     Customer? @relation("OrderReceiver", fields: [receiverId], references: [id])
+  originBranch Branch?   @relation("OrderOrigin", fields: [originBranchId], references: [id])
+  destBranch   Branch?   @relation("OrderDest", fields: [destBranchId], references: [id])
+  courier      Courier?  @relation(fields: [courierId], references: [id])
+  createdBy    Staff?    @relation("OrderCreatedBy", fields: [createdById], references: [id])
+
+  items         OrderItem[]
+  payments      Payment[]
+  earnings      CourierEarning[]
+  events        OrderEvent[]
+  receiverLinks ReceiverLink[]
+
+  @@index([trackingNumber])
+  @@index([trackingToken])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([courierId])
+  @@index([status])
+  @@map("orders")
+}
+
+// ══════════════════════════════════════════════════
+// ORDER ITEM
+// ══════════════════════════════════════════════════
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+
+  type        ItemType @default(PARCEL)
+  description String?
+  quantity    Int      @default(1)
+
+  weightKg Float  @default(0)
+  lengthCm Float?
+  widthCm  Float?
+  heightCm Float?
+  volumeL  Float?
+
+  declaredValue  Float?
+  isFragile      Boolean @default(false)
+  isRefrigerated Boolean @default(false)
+  photoUrl       String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ══════════════════════════════════════════════════
+// RECEIVER LINK (one-time secure location fill)
+// ══════════════════════════════════════════════════
+
+model ReceiverLink {
+  id            String @id @default(cuid())
+  orderId       String
+  shortCode     String @unique
+  tokenHash     String
+  receiverPhone String
+  purpose       String @default("receiver_onboarding")
+
+  status ReceiverLinkStatus @default(ACTIVE)
+
+  sentViaSms      Boolean   @default(false)
+  sentViaTelegram Boolean   @default(false)
+  sentViaWhatsapp Boolean   @default(false)
+  openedAt        DateTime?
+  openedIp        String?
+  filledAt        DateTime?
+  filledIp        String?
+
+  otpVerified   Boolean   @default(false)
+  otpVerifiedAt DateTime?
+
+  capturedLat      Float?
+  capturedLng      Float?
+  capturedAccuracy Float?
+  capturedSource   String?
+
+  expiresAt   DateTime
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([shortCode])
+  @@index([orderId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("receiver_links")
+}
+
+// ══════════════════════════════════════════════════
+// PAYMENT
+// ══════════════════════════════════════════════════
+
+model Payment {
+  id             String        @id @default(cuid())
+  orderId        String
+  amount         Float
+  currency       String        @default("ETB")
+  method         PaymentMethod
+  party          PaymentParty
+  gatewayRef     String?
+  gatewayPayload Json?
+  status         PaymentStatus @default(PENDING)
+  paidAt         DateTime?
+  refundedAt     DateTime?
+  refundAmount   Float?
+  refundReason   String?
+  createdById    String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  order     Order  @relation(fields: [orderId], references: [id])
+  createdBy Staff? @relation("PaymentCreatedBy", fields: [createdById], references: [id])
+
+  @@index([orderId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ══════════════════════════════════════════════════
+// COURIER EARNING
+// ══════════════════════════════════════════════════
+
+model CourierEarning {
+  id          String        @id @default(cuid())
+  courierId   String
+  orderId     String?
+  amount      Float
+  currency    String        @default("ETB")
+  type        EarningType   @default(DELIVERY)
+  status      EarningStatus @default(PENDING)
+  description String?
+  releasedAt  DateTime?
+  payoutId    String?
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  courier Courier @relation(fields: [courierId], references: [id])
+  order   Order?  @relation(fields: [orderId], references: [id])
+  payout  Payout? @relation(fields: [payoutId], references: [id])
+
+  @@index([courierId])
+  @@index([orderId])
+  @@index([status])
+  @@map("courier_earnings")
+}
+
+// ══════════════════════════════════════════════════
+// PAYOUT
+// ══════════════════════════════════════════════════
+
+model Payout {
+  id        String @id @default(cuid())
+  courierId String
+
+  totalAmount  Float
+  currency     String @default("ETB")
+  earningCount Int    @default(0)
+
+  periodStart DateTime
+  periodEnd   DateTime
+
+  method    PaymentMethod?
+  reference String?
+
+  status        PayoutStatus @default(PENDING)
+  paidAt        DateTime?
+  failureReason String?
+
+  processedById String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  courier     Courier          @relation(fields: [courierId], references: [id])
+  processedBy Staff?           @relation("PayoutProcessedBy", fields: [processedById], references: [id])
+  earnings    CourierEarning[]
+
+  @@index([courierId])
+  @@index([status])
+  @@map("payouts")
+}
+
+// ══════════════════════════════════════════════════
+// ORDER EVENT (audit trail + public tracking feed)
+// ══════════════════════════════════════════════════
+
+model OrderEvent {
+  id        String       @id @default(cuid())
+  orderId   String
+  status    OrderStatus
+  note      String?
+  location  String?
+  lat       Float?
+  lng       Float?
+  actorType AccountType?
+  actorId   String?
+  actorName String?
+  isPublic  Boolean      @default(true) // ← shown to sender/receiver
+  createdAt DateTime     @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([createdAt])
+  @@map("order_events")
 }

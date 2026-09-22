@@ -5,11 +5,11 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
-import { ListUsersQueryDto } from './dto/list-users-query.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
-import { Role } from '@prisma/client';
+import { ListStaffQueryDto } from './dto/list-staff-query.dto';
+import { AccountType, StaffRole } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -23,34 +23,30 @@ export class AdminService {
     throw new BadRequestException('Invalid phone');
   }
 
-  // ──────────────────────────────────────────────
-  // CREATE STAFF (Regional Admin / Branch Manager / Courier)
-  // ──────────────────────────────────────────────
-  async createStaff(dto: CreateStaffDto, createdById: string) {
-    if (dto.role === Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Cannot create another Super Admin via API');
-    }
-
-    if (dto.role === Role.CUSTOMER) {
-      throw new BadRequestException('Use customer signup flow for customers');
+  async createStaff(dto: CreateStaffDto, role: StaffRole, currentUser: any) {
+    if (role === StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Cannot create another Super Admin');
     }
 
     const phone = this.normalizePhone(dto.phone);
 
-    // Validate role requirements
-    if (dto.role === Role.REGIONAL_ADMIN && !dto.regionId) {
+    // Role requirements
+    if (role === StaffRole.REGIONAL_ADMIN && !dto.regionId) {
       throw new BadRequestException('Regional Admin requires a regionId');
     }
-    if (
-      (dto.role === Role.BRANCH_MANAGER || dto.role === Role.COURIER) &&
-      (!dto.regionId || !dto.branchId)
-    ) {
-      throw new BadRequestException(
-        `${dto.role} requires both regionId and branchId`,
-      );
+    if (role === StaffRole.BRANCH_MANAGER && (!dto.regionId || !dto.branchId)) {
+      throw new BadRequestException('Branch Manager requires regionId and branchId');
     }
 
-    // Check region exists
+    // Region scoping
+    if (
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      dto.regionId !== currentUser.regionId
+    ) {
+      throw new ForbiddenException('You can only create staff in your region');
+    }
+
+    // Validate region
     if (dto.regionId) {
       const region = await this.prisma.region.findUnique({
         where: { id: dto.regionId },
@@ -58,7 +54,7 @@ export class AdminService {
       if (!region) throw new NotFoundException('Region not found');
     }
 
-    // Check branch exists + belongs to region
+    // Validate branch
     if (dto.branchId) {
       const branch = await this.prisma.branch.findUnique({
         where: { id: dto.branchId },
@@ -69,31 +65,41 @@ export class AdminService {
       }
     }
 
-    // Prevent duplicate phone
-    const existing = await this.prisma.user.findUnique({ where: { phone } });
+    // Duplicate phone
+    const existing = await this.prisma.staff.findUnique({ where: { phone } });
     if (existing) {
-      throw new ConflictException('A user with this phone already exists');
+      throw new ConflictException('A staff member with this phone already exists');
     }
 
-    // Prevent duplicate email
+    // Duplicate email
     if (dto.email) {
-      const emailExists = await this.prisma.user.findUnique({
+      const emailExists = await this.prisma.staff.findUnique({
         where: { email: dto.email },
       });
       if (emailExists) throw new ConflictException('Email already in use');
     }
 
-    return this.prisma.user.create({
-      data: {
-        phone,
-        name: dto.name,
-        email: dto.email,
-        role: dto.role,
-        regionId: dto.regionId,
-        branchId: dto.branchId,
-        isActive: true,
-        phoneVerified: false, // they'll verify on first OTP login
-      },
+    const passwordHash = dto.password ? await argon2.hash(dto.password) : null;
+
+    // ✅ Build data object with ONLY scalar FKs (UncheckedCreateInput)
+    const data: any = {
+      phone,
+      name: dto.name,
+      email: dto.email,
+      role,
+      passwordHash,
+      passwordChangedAt: passwordHash ? new Date() : null,
+      mustChangePassword: passwordHash ? (dto.mustChangePassword ?? false) : false,
+      isActive: true,
+      phoneVerified: false,
+      createdById: currentUser.id,
+    };
+
+    if (dto.regionId) data.regionId = dto.regionId;
+    if (dto.branchId) data.branchId = dto.branchId;
+
+    return this.prisma.staff.create({
+      data,
       select: {
         id: true,
         phone: true,
@@ -103,24 +109,22 @@ export class AdminService {
         regionId: true,
         branchId: true,
         isActive: true,
+        mustChangePassword: true,
         createdAt: true,
       },
     });
   }
 
-  // ──────────────────────────────────────────────
-  // LIST USERS with filters
-  // ──────────────────────────────────────────────
-  async listUsers(query: ListUsersQueryDto, currentUser: any) {
+  async listStaff(query: ListStaffQueryDto, currentUser: any) {
     const where: any = {};
 
-    // Region admins only see their region
-    if (currentUser.role === Role.REGIONAL_ADMIN) {
+    if (currentUser.role === StaffRole.REGIONAL_ADMIN) {
       where.regionId = currentUser.regionId;
+    } else if (query.regionId) {
+      where.regionId = query.regionId;
     }
 
     if (query.role) where.role = query.role;
-    if (query.regionId) where.regionId = query.regionId;
     if (query.branchId) where.branchId = query.branchId;
 
     if (query.search) {
@@ -136,7 +140,7 @@ export class AdminService {
     const skip = (page - 1) * limit;
 
     const [data, total] = await Promise.all([
-      this.prisma.user.findMany({
+      this.prisma.staff.findMany({
         where,
         select: {
           id: true,
@@ -148,14 +152,17 @@ export class AdminService {
           branchId: true,
           isActive: true,
           phoneVerified: true,
-          emailVerified: true,
+          mustChangePassword: true,
+          suspendedAt: true,
           createdAt: true,
+          region: { select: { id: true, name: true, code: true } },
+          branch: { select: { id: true, name: true, code: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
       }),
-      this.prisma.user.count({ where }),
+      this.prisma.staff.count({ where }),
     ]);
 
     return {
@@ -167,11 +174,8 @@ export class AdminService {
     };
   }
 
-  // ──────────────────────────────────────────────
-  // GET ONE USER
-  // ──────────────────────────────────────────────
-  async getUser(id: string, currentUser: any) {
-    const user = await this.prisma.user.findUnique({
+  async getStaff(id: string, currentUser: any) {
+    const staff = await this.prisma.staff.findUnique({
       where: { id },
       select: {
         id: true,
@@ -183,98 +187,112 @@ export class AdminService {
         branchId: true,
         isActive: true,
         phoneVerified: true,
-        emailVerified: true,
+        mustChangePassword: true,
+        suspendedAt: true,
         createdAt: true,
-        updatedAt: true,
         region: { select: { id: true, name: true, code: true } },
-        branch: { select: { id: true, name: true } },
+        branch: { select: { id: true, name: true, code: true } },
       },
     });
 
-    if (!user) throw new NotFoundException('User not found');
+    if (!staff) throw new NotFoundException('Staff not found');
 
-    // Region admin scoping
     if (
-      currentUser.role === Role.REGIONAL_ADMIN &&
-      user.regionId !== currentUser.regionId
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      staff.regionId !== currentUser.regionId
     ) {
-      throw new ForbiddenException('You can only view users in your region');
+      throw new ForbiddenException('You can only view staff in your region');
     }
 
-    return user;
+    return staff;
   }
 
-  // ──────────────────────────────────────────────
-  // UPDATE USER
-  // ──────────────────────────────────────────────
-  async updateUser(id: string, dto: UpdateUserDto, currentUser: any) {
-    const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target) throw new NotFoundException('User not found');
+  async suspendStaff(id: string, currentUser: any) {
+    const target = await this.prisma.staff.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('Staff not found');
 
-    // Cannot modify super admins
-    if (target.role === Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Cannot modify Super Admin');
+    if (target.role === StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Cannot suspend Super Admin');
     }
 
-    // Region admin scoping
+    if (target.id === currentUser.id) {
+      throw new ForbiddenException('Cannot suspend yourself');
+    }
+
     if (
-      currentUser.role === Role.REGIONAL_ADMIN &&
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
       target.regionId !== currentUser.regionId
     ) {
-      throw new ForbiddenException('You can only modify users in your region');
+      throw new ForbiddenException('You can only suspend staff in your region');
     }
 
-    // Cannot promote to Super Admin
-    if (dto.role === Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Cannot promote to Super Admin');
-    }
-
-    return this.prisma.user.update({
+    await this.prisma.staff.update({
       where: { id },
-      data: dto as any,
-      select: {
-        id: true,
-        phone: true,
-        name: true,
-        email: true,
-        role: true,
-        regionId: true,
-        branchId: true,
-        isActive: true,
-        updatedAt: true,
+      data: {
+        isActive: false,
+        suspendedAt: new Date(),
+        suspendedById: currentUser.id,
       },
     });
-  }
 
-  // ──────────────────────────────────────────────
-  // DEACTIVATE USER (soft delete)
-  // ──────────────────────────────────────────────
-  async deactivateUser(id: string, currentUser: any) {
-    const target = await this.prisma.user.findUnique({ where: { id } });
-    if (!target) throw new NotFoundException('User not found');
-
-    if (target.role === Role.SUPER_ADMIN) {
-      throw new ForbiddenException('Cannot deactivate Super Admin');
-    }
-
-    if (
-      currentUser.role === Role.REGIONAL_ADMIN &&
-      target.regionId !== currentUser.regionId
-    ) {
-      throw new ForbiddenException('You can only deactivate users in your region');
-    }
-
-    await this.prisma.user.update({
-      where: { id },
-      data: { isActive: false },
-    });
-
-    // Revoke all sessions
     await this.prisma.refreshToken.updateMany({
-      where: { userId: id, revokedAt: null },
+      where: { accountId: id, accountType: AccountType.STAFF, revokedAt: null },
       data: { revokedAt: new Date() },
     });
 
-    return { message: 'User deactivated and all sessions revoked' };
+    return { message: 'Staff suspended' };
+  }
+
+  async reactivateStaff(id: string, currentUser: any) {
+    const target = await this.prisma.staff.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('Staff not found');
+
+    if (
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      target.regionId !== currentUser.regionId
+    ) {
+      throw new ForbiddenException('You can only reactivate staff in your region');
+    }
+
+    await this.prisma.staff.update({
+      where: { id },
+      data: {
+        isActive: true,
+        suspendedAt: null,
+        suspendedById: null,
+      },
+    });
+
+    return { message: 'Staff reactivated' };
+  }
+
+  async resetPassword(id: string, newPassword: string, currentUser: any) {
+    const target = await this.prisma.staff.findUnique({ where: { id } });
+    if (!target) throw new NotFoundException('Staff not found');
+
+    if (
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      target.regionId !== currentUser.regionId
+    ) {
+      throw new ForbiddenException('You can only reset passwords in your region');
+    }
+
+    const passwordHash = await argon2.hash(newPassword);
+
+    await this.prisma.staff.update({
+      where: { id },
+      data: {
+        passwordHash,
+        passwordChangedAt: new Date(),
+        mustChangePassword: true,
+      },
+    });
+
+    await this.prisma.refreshToken.updateMany({
+      where: { accountId: id, accountType: AccountType.STAFF, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    return { message: 'Password reset' };
   }
 }

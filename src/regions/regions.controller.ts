@@ -13,18 +13,19 @@ import { CreateRegionDto } from './dto/create-region.dto';
 import { UpdateRegionDto } from './dto/update-region.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { Role } from '@prisma/client';
+import { StaffRoles } from '../common/decorators/staff-roles.decorator';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { StaffRole } from '@prisma/client';
 
 @Controller('admin/regions')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.SUPER_ADMIN)
+@StaffRoles(StaffRole.SUPER_ADMIN)
 export class RegionsController {
   constructor(private regions: RegionsService) {}
 
   @Post()
-  create(@Body() dto: CreateRegionDto) {
-    return this.regions.create(dto);
+  create(@Body() dto: CreateRegionDto, @CurrentUser() user: any) {
+    return this.regions.create(dto, user);
   }
 
   @Get()

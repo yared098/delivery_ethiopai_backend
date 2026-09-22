@@ -1,12 +1,13 @@
 import {
   Injectable,
   UnauthorizedException,
-  ConflictException,
+  NotFoundException,
 } from '@nestjs/common';
+import * as argon2 from 'argon2';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
-import { GoogleService } from './google.service';
-import { UsersService } from '../users/users.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { AccountType, CourierStatus } from '@prisma/client';
 
 interface Meta {
   userAgent?: string;
@@ -18,118 +19,167 @@ export class AuthService {
   constructor(
     private otp: OtpService,
     private tokens: TokenService,
-    private google: GoogleService,
-    private users: UsersService,
+    private prisma: PrismaService,
   ) {}
 
-  // ---------- PHONE OTP FLOW ----------
-
-  async requestOtp(phone: string, purpose = 'login') {
-    await this.otp.requestOtp(phone, purpose);
-    return { message: 'OTP sent successfully' };
+  private normalizePhone(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.startsWith('251') && digits.length === 12) return digits;
+    if (digits.startsWith('0') && digits.length === 10) return '251' + digits.slice(1);
+    if (digits.length === 9) return '251' + digits;
+    return '251' + digits;
   }
 
-  async verifyOtp(phone: string, code: string, meta: Meta) {
-    const normalized = await this.otp.verifyOtp(phone, code, 'login');
-    const user = await this.users.findOrCreateByPhone(normalized);
-
-    if (!user.isActive) throw new UnauthorizedException('Account disabled');
-
-    const tokens = await this.tokens.issueTokens(
-      {
-        sub: user.id,
-        role: user.role,
-        regionId: user.regionId ?? undefined,
-        branchId: user.branchId ?? undefined,
-      },
-      meta,
-    );
-
-    return {
-      user: this.publicUser(user),
-      ...tokens,
-    };
+  // ══════════════════════════════════════════════════
+  // STAFF
+  // ══════════════════════════════════════════════════
+  async requestStaffOtp(phone: string) {
+    const normalized = this.normalizePhone(phone);
+    const staff = await this.prisma.staff.findUnique({ where: { phone: normalized } });
+    if (!staff) throw new NotFoundException('No staff account with this phone');
+    if (!staff.isActive) throw new UnauthorizedException('Account suspended');
+    await this.otp.requestOtp(phone, AccountType.STAFF, 'login', { staffId: staff.id });
+    return { message: 'OTP sent' };
   }
 
-  // ---------- GOOGLE FLOW ----------
+  async verifyStaffOtp(phone: string, code: string, meta: Meta) {
+    const normalized = await this.otp.verifyOtp(phone, code, AccountType.STAFF, 'login');
+    const staff = await this.prisma.staff.findUnique({ where: { phone: normalized } });
+    if (!staff) throw new UnauthorizedException('Staff not found');
+    if (!staff.isActive) throw new UnauthorizedException('Account suspended');
 
-  async googleLogin(idToken: string, meta: Meta) {
-    const profile = await this.google.verifyIdToken(idToken);
-
-    // 1. Try to find by googleId
-    let user = await this.users.findByGoogleId(profile.googleId);
-
-    // 2. If not, try by email (link existing account)
-    if (!user) {
-      const byEmail = await this.users.findByEmail(profile.email);
-      if (byEmail) {
-        user = await this.users.linkGoogleToUser(byEmail.id, {
-          googleId: profile.googleId,
-          email: profile.email,
-          name: profile.name,
-        });
-      }
-    }
-
-    // 3. Otherwise, create new
-    if (!user) {
-      user = await this.users.createGoogleUser({
-        googleId: profile.googleId,
-        email: profile.email,
-        name: profile.name,
+    if (!staff.phoneVerified) {
+      await this.prisma.staff.update({
+        where: { id: staff.id },
+        data: { phoneVerified: true },
       });
     }
 
-    if (!user.isActive) throw new UnauthorizedException('Account disabled');
+    const tokens = await this.tokens.issueTokens(
+      {
+        sub: staff.id,
+        accountType: AccountType.STAFF,
+        role: staff.role,
+        regionId: staff.regionId,
+        branchId: staff.branchId,
+      },
+      meta,
+    );
+
+    return { account: this.publicStaff(staff), accountType: AccountType.STAFF, ...tokens };
+  }
+
+  async staffPasswordLogin(phone: string, password: string, meta: Meta) {
+    const normalized = this.normalizePhone(phone);
+    const staff = await this.prisma.staff.findUnique({ where: { phone: normalized } });
+
+    if (!staff || !staff.passwordHash) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (!staff.isActive) throw new UnauthorizedException('Account suspended');
+
+    const valid = await argon2.verify(staff.passwordHash, password);
+    if (!valid) throw new UnauthorizedException('Invalid credentials');
 
     const tokens = await this.tokens.issueTokens(
       {
-        sub: user.id,
-        role: user.role,
-        regionId: user.regionId ?? undefined,
-        branchId: user.branchId ?? undefined,
+        sub: staff.id,
+        accountType: AccountType.STAFF,
+        role: staff.role,
+        regionId: staff.regionId,
+        branchId: staff.branchId,
       },
       meta,
     );
 
     return {
-      user: this.publicUser(user),
-      requiresPhone: !user.phone, // flag for frontend to prompt
+      account: this.publicStaff(staff),
+      accountType: AccountType.STAFF,
+      mustChangePassword: staff.mustChangePassword,
       ...tokens,
     };
   }
 
-  // ---------- LINK PHONE TO GOOGLE USER ----------
-
-  async requestLinkPhone(userId: string, phone: string) {
-    // Ensure phone not already used by another user
-    const existing = await this.users.findOrCreateByPhone(phone);
-    // findOrCreateByPhone creates if missing — we don't want that here
-    if (existing.id !== userId && existing.id !== 'temp') {
-      // If a different user has this phone, reject
-      if (existing.phone === this.normalizePhone(phone) && existing.id !== userId) {
-        throw new ConflictException('Phone already linked to another account');
-      }
+  // ══════════════════════════════════════════════════
+  // COURIER
+  // ══════════════════════════════════════════════════
+  async requestCourierOtp(phone: string) {
+    const normalized = this.normalizePhone(phone);
+    const courier = await this.prisma.courier.findUnique({ where: { phone: normalized } });
+    if (!courier) throw new NotFoundException('No courier account with this phone');
+    if (!courier.isActive) throw new UnauthorizedException('Courier suspended');
+    if (courier.status !== CourierStatus.APPROVED) {
+      throw new UnauthorizedException(`Courier account is ${courier.status}`);
     }
-    await this.otp.requestOtp(phone, 'link_phone');
-    return { message: 'OTP sent for phone linking' };
+    await this.otp.requestOtp(phone, AccountType.COURIER, 'login', { courierId: courier.id });
+    return { message: 'OTP sent' };
   }
 
-  async verifyLinkPhone(userId: string, phone: string, code: string) {
-    const normalized = await this.otp.verifyOtp(phone, code, 'link_phone');
-
-    // Check phone not already used
-    const existing = await this.users.findByPhone(normalized);
-    if (existing && existing.id !== userId) {
-      throw new ConflictException('Phone already linked to another account');
+  async verifyCourierOtp(phone: string, code: string, meta: Meta) {
+    const normalized = await this.otp.verifyOtp(phone, code, AccountType.COURIER, 'login');
+    const courier = await this.prisma.courier.findUnique({ where: { phone: normalized } });
+    if (!courier) throw new UnauthorizedException('Courier not found');
+    if (!courier.isActive) throw new UnauthorizedException('Courier suspended');
+    if (courier.status !== CourierStatus.APPROVED) {
+      throw new UnauthorizedException(`Courier status: ${courier.status}`);
     }
 
-    const user = await this.users.linkPhone(userId, normalized);
-    return { user: this.publicUser(user), message: 'Phone linked' };
+    if (!courier.phoneVerified) {
+      await this.prisma.courier.update({
+        where: { id: courier.id },
+        data: { phoneVerified: true },
+      });
+    }
+
+    const tokens = await this.tokens.issueTokens(
+      {
+        sub: courier.id,
+        accountType: AccountType.COURIER,
+        regionId: courier.regionId,
+        branchId: courier.branchId,
+      },
+      meta,
+    );
+
+    return { account: this.publicCourier(courier), accountType: AccountType.COURIER, ...tokens };
   }
 
-  // ---------- SESSION ----------
+  // ══════════════════════════════════════════════════
+  // CUSTOMER
+  // ══════════════════════════════════════════════════
+  async requestCustomerOtp(phone: string) {
+    await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
+    return { message: 'OTP sent' };
+  }
 
+  async verifyCustomerOtp(phone: string, code: string, meta: Meta) {
+    const normalized = await this.otp.verifyOtp(phone, code, AccountType.CUSTOMER, 'login');
+
+    let customer = await this.prisma.customer.findUnique({ where: { phone: normalized } });
+    if (!customer) {
+      customer = await this.prisma.customer.create({
+        data: { phone: normalized, phoneVerified: true },
+      });
+    } else if (!customer.phoneVerified) {
+      customer = await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: { phoneVerified: true },
+      });
+    }
+
+    if (!customer.isActive) throw new UnauthorizedException('Account disabled');
+
+    const tokens = await this.tokens.issueTokens(
+      { sub: customer.id, accountType: AccountType.CUSTOMER },
+      meta,
+    );
+
+    return { account: this.publicCustomer(customer), accountType: AccountType.CUSTOMER, ...tokens };
+  }
+
+  // ══════════════════════════════════════════════════
+  // SESSION
+  // ══════════════════════════════════════════════════
   async refresh(refreshToken: string, meta: Meta) {
     return this.tokens.rotate(refreshToken, meta);
   }
@@ -139,31 +189,48 @@ export class AuthService {
     return { message: 'Logged out' };
   }
 
-  async logoutAll(userId: string) {
-    await this.tokens.revokeAllForUser(userId);
+  async logoutAll(accountId: string, accountType: AccountType) {
+    await this.tokens.revokeAll(accountId, accountType);
     return { message: 'All sessions revoked' };
   }
 
-  // ---------- HELPERS ----------
-
-  private normalizePhone(phone: string): string {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.startsWith('251') && digits.length === 12) return digits;
-    if (digits.startsWith('0') && digits.length === 10) return '251' + digits.slice(1);
-    return '251' + digits;
+  private publicStaff(s: any) {
+    return {
+      id: s.id,
+      phone: s.phone,
+      name: s.name,
+      email: s.email,
+      role: s.role,
+      regionId: s.regionId,
+      branchId: s.branchId,
+      phoneVerified: s.phoneVerified,
+      mustChangePassword: s.mustChangePassword,
+    };
   }
 
-  private publicUser(user: any) {
+  private publicCourier(c: any) {
     return {
-      id: user.id,
-      phone: user.phone,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      regionId: user.regionId,
-      branchId: user.branchId,
-      phoneVerified: user.phoneVerified,
-      emailVerified: user.emailVerified,
+      id: c.id,
+      phone: c.phone,
+      name: c.name,
+      email: c.email,
+      regionId: c.regionId,
+      branchId: c.branchId,
+      vehicleType: c.vehicleType,
+      status: c.status,
+      rating: c.rating,
+      totalDeliveries: c.totalDeliveries,
+      phoneVerified: c.phoneVerified,
+    };
+  }
+
+  private publicCustomer(c: any) {
+    return {
+      id: c.id,
+      phone: c.phone,
+      name: c.name,
+      email: c.email,
+      phoneVerified: c.phoneVerified,
     };
   }
 }

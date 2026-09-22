@@ -1,4 +1,4 @@
-import { PrismaClient, Role } from '@prisma/client';
+import { PrismaClient, StaffRole } from '@prisma/client';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
@@ -26,28 +26,25 @@ async function seedSuperAdmin() {
 
   console.log(`\n🔍 Checking for existing Super Admin...`);
 
-  // Safety: refuse if ANY super admin exists
-  const existing = await prisma.user.findFirst({
-    where: { role: Role.SUPER_ADMIN },
+  const existing = await prisma.staff.findFirst({
+    where: { role: StaffRole.SUPER_ADMIN },
   });
 
   if (existing) {
     console.log(`⚠️  Super Admin already exists (id: ${existing.id}, phone: ${existing.phone})`);
-    console.log(`   Skipping creation to avoid duplicates.`);
+    console.log(`   Skipping creation.`);
     return;
   }
 
-  // Safety: if a user with this phone exists, upgrade them (don't duplicate)
-  const byPhone = await prisma.user.findUnique({ where: { phone } });
-
+  const byPhone = await prisma.staff.findUnique({ where: { phone } });
   let superAdmin;
 
   if (byPhone) {
-    console.log(`📝 User with phone ${phone} already exists — upgrading to SUPER_ADMIN`);
-    superAdmin = await prisma.user.update({
+    console.log(`📝 Staff with phone ${phone} exists — upgrading to SUPER_ADMIN`);
+    superAdmin = await prisma.staff.update({
       where: { id: byPhone.id },
       data: {
-        role: Role.SUPER_ADMIN,
+        role: StaffRole.SUPER_ADMIN,
         name: byPhone.name || name,
         isActive: true,
         phoneVerified: true,
@@ -55,11 +52,11 @@ async function seedSuperAdmin() {
     });
   } else {
     console.log(`✨ Creating new Super Admin...`);
-    superAdmin = await prisma.user.create({
+    superAdmin = await prisma.staff.create({
       data: {
         phone,
         name,
-        role: Role.SUPER_ADMIN,
+        role: StaffRole.SUPER_ADMIN,
         isActive: true,
         phoneVerified: true,
       },
@@ -71,8 +68,7 @@ async function seedSuperAdmin() {
   console.log(`   Phone: ${superAdmin.phone}`);
   console.log(`   Name:  ${superAdmin.name}`);
   console.log(`   Role:  ${superAdmin.role}`);
-  console.log(`\n👉 Login with this phone via OTP: POST /api/v1/auth/otp/request`);
-  console.log(`   Body: { "phone": "${rawPhone}" }\n`);
+  console.log(`\n👉 Login with this phone via OTP\n`);
 }
 
 seedSuperAdmin()

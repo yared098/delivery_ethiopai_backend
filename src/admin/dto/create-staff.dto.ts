@@ -1,14 +1,12 @@
 import {
   IsString,
-  IsEnum,
   IsOptional,
   IsEmail,
   Matches,
   Length,
-  IsPhoneNumber,
-  ValidateIf,
+  MinLength,
+  IsBoolean,
 } from 'class-validator';
-import { Role } from '@prisma/client';
 
 export class CreateStaffDto {
   @IsString()
@@ -23,18 +21,20 @@ export class CreateStaffDto {
   @IsEmail()
   email?: string;
 
-  @IsEnum(Role, {
-    message: 'Role must be one of: REGIONAL_ADMIN, BRANCH_MANAGER, COURIER',
-  })
-  role: Role;
-
-  @ValidateIf((o) => o.role === Role.REGIONAL_ADMIN || o.role === Role.BRANCH_MANAGER || o.role === Role.COURIER)
-  @IsString()
   @IsOptional()
+  @IsString()
   regionId?: string;
 
-  @ValidateIf((o) => o.role === Role.BRANCH_MANAGER || o.role === Role.COURIER)
-  @IsString()
   @IsOptional()
+  @IsString()
   branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  password?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  mustChangePassword?: boolean;
 }

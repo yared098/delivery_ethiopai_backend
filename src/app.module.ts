@@ -3,11 +3,17 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
 import { AfroMessageModule } from './integrations/afromessage/afromessage.module';
-import { UsersModule } from './users/users.module';
+import { StaffModule } from './staff/staff.module';
 import { AuthModule } from './auth/auth.module';
 import { RegionsModule } from './regions/regions.module';
 import { BranchesModule } from './branches/branches.module';
 import { AdminModule } from './admin/admin.module';
+import { CouriersModule } from './couriers/couriers.module';
+import { CustomersModule } from './customers/customers.module';
+import { OrdersModule } from './orders/orders.module';
+import { TrackingModule } from './tracking/tracking.module';
+import { UploadsModule } from './uploads/uploads.module';
+import { PaymentProvidersModule } from './payment-providers/payment-providers.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -15,11 +21,17 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     ConfigModule.forRoot({ isGlobal: true }),
     PrismaModule,
     AfroMessageModule,
-    UsersModule,
+    StaffModule,
     AuthModule,
     RegionsModule,
     BranchesModule,
     AdminModule,
+    CouriersModule,
+    CustomersModule,
+    OrdersModule,
+    TrackingModule,
+    UploadsModule,
+    PaymentProvidersModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })

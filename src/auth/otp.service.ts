@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AfroMessageService } from '../integrations/afromessage/afromessage.service';
 import { ConfigService } from '@nestjs/config';
+import { AccountType } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { Redis } from 'ioredis';
 
@@ -35,11 +36,16 @@ export class OtpService implements OnModuleDestroy {
     throw new BadRequestException('Invalid Ethiopian phone number');
   }
 
-  async requestOtp(rawPhone: string, purpose = 'login'): Promise<void> {
+  async requestOtp(
+    rawPhone: string,
+    accountType: AccountType,
+    purpose = 'login',
+    extraIds: { staffId?: string; courierId?: string } = {},
+  ): Promise<void> {
     const phone = this.normalizePhone(rawPhone);
 
     const limit = Number(this.config.get('OTP_RATE_LIMIT_PER_10MIN') || 3);
-    const key = `otp:rate:${phone}:${purpose}`;
+    const key = `otp:rate:${phone}:${accountType}:${purpose}`;
     const count = await this.redis.incr(key);
     if (count === 1) await this.redis.expire(key, 600);
     if (count > limit) {
@@ -55,27 +61,40 @@ export class OtpService implements OnModuleDestroy {
     const expiresAt = new Date(Date.now() + ttl * 1000);
 
     await this.prisma.otpCode.updateMany({
-      where: { phone, purpose, used: false },
+      where: { phone, accountType, purpose, used: false },
       data: { used: true },
     });
 
     await this.prisma.otpCode.create({
-      data: { phone, codeHash, purpose, expiresAt },
+      data: {
+        phone,
+        accountType,
+        codeHash,
+        purpose,
+        expiresAt,
+        staffId: extraIds.staffId,
+        courierId: extraIds.courierId,
+      },
     });
 
     const sent = await this.sms.sendOtp(phone, code);
     if (!sent) throw new BadRequestException('Failed to send OTP');
   }
 
-  async verifyOtp(rawPhone: string, code: string, purpose = 'login'): Promise<string> {
+  async verifyOtp(
+    rawPhone: string,
+    code: string,
+    accountType: AccountType,
+    purpose = 'login',
+  ): Promise<string> {
     const phone = this.normalizePhone(rawPhone);
 
     const record = await this.prisma.otpCode.findFirst({
-      where: { phone, purpose, used: false },
+      where: { phone, accountType, purpose, used: false },
       orderBy: { createdAt: 'desc' },
     });
 
-    if (!record) throw new BadRequestException('No active OTP for this phone');
+    if (!record) throw new BadRequestException('No active OTP');
     if (record.expiresAt < new Date()) throw new BadRequestException('OTP expired');
 
     const maxAttempts = Number(this.config.get('OTP_MAX_ATTEMPTS') || 3);

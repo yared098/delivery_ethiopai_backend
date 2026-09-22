@@ -10,8 +10,7 @@ import { AuthService } from './auth.service';
 import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
-import { GoogleLoginDto } from './dto/google-login.dto';
-import { LinkPhoneDto } from './dto/link-phone.dto';
+import { PasswordLoginDto } from './dto/password-login.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -19,44 +18,70 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 export class AuthController {
   constructor(private auth: AuthService) {}
 
-  // ---------- PHONE OTP ----------
+  // ══════════════════════════════════════════════════
+  // STAFF (Super Admin, Regional Admin, Branch Manager)
+  // ══════════════════════════════════════════════════
 
   @Public()
-  @Post('otp/request')
+  @Post('staff/otp/request')
   @HttpCode(HttpStatus.OK)
-  requestOtp(@Body() dto: RequestOtpDto) {
-    return this.auth.requestOtp(dto.phone);
+  staffRequestOtp(@Body() dto: RequestOtpDto) {
+    return this.auth.requestStaffOtp(dto.phone);
   }
 
   @Public()
-  @Post('otp/verify')
+  @Post('staff/otp/verify')
   @HttpCode(HttpStatus.OK)
-  verifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
-    return this.auth.verifyOtp(dto.phone, dto.code, this.meta(req));
+  staffVerifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
+    return this.auth.verifyStaffOtp(dto.phone, dto.code, this.meta(req));
   }
-
-  // ---------- GOOGLE ----------
 
   @Public()
-  @Post('google')
+  @Post('staff/password/login')
   @HttpCode(HttpStatus.OK)
-  googleLogin(@Body() dto: GoogleLoginDto, @Req() req: any) {
-    return this.auth.googleLogin(dto.idToken, this.meta(req));
+  staffPasswordLogin(@Body() dto: PasswordLoginDto, @Req() req: any) {
+    return this.auth.staffPasswordLogin(dto.phone, dto.password, this.meta(req));
   }
 
-  @Post('link-phone/request')
+  // ══════════════════════════════════════════════════
+  // COURIER
+  // ══════════════════════════════════════════════════
+
+  @Public()
+  @Post('courier/otp/request')
   @HttpCode(HttpStatus.OK)
-  requestLinkPhone(@CurrentUser('id') userId: string, @Body() dto: RequestOtpDto) {
-    return this.auth.requestLinkPhone(userId, dto.phone);
+  courierRequestOtp(@Body() dto: RequestOtpDto) {
+    return this.auth.requestCourierOtp(dto.phone);
   }
 
-  @Post('link-phone/verify')
+  @Public()
+  @Post('courier/otp/verify')
   @HttpCode(HttpStatus.OK)
-  verifyLinkPhone(@CurrentUser('id') userId: string, @Body() dto: LinkPhoneDto) {
-    return this.auth.verifyLinkPhone(userId, dto.phone, dto.code);
+  courierVerifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
+    return this.auth.verifyCourierOtp(dto.phone, dto.code, this.meta(req));
   }
 
-  // ---------- SESSION ----------
+  // ══════════════════════════════════════════════════
+  // CUSTOMER
+  // ══════════════════════════════════════════════════
+
+  @Public()
+  @Post('customer/otp/request')
+  @HttpCode(HttpStatus.OK)
+  customerRequestOtp(@Body() dto: RequestOtpDto) {
+    return this.auth.requestCustomerOtp(dto.phone);
+  }
+
+  @Public()
+  @Post('customer/otp/verify')
+  @HttpCode(HttpStatus.OK)
+  customerVerifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
+    return this.auth.verifyCustomerOtp(dto.phone, dto.code, this.meta(req));
+  }
+
+  // ══════════════════════════════════════════════════
+  // SESSION
+  // ══════════════════════════════════════════════════
 
   @Public()
   @Post('refresh')
@@ -74,8 +99,8 @@ export class AuthController {
 
   @Post('logout-all')
   @HttpCode(HttpStatus.OK)
-  logoutAll(@CurrentUser('id') userId: string) {
-    return this.auth.logoutAll(userId);
+  logoutAll(@CurrentUser() user: any) {
+    return this.auth.logoutAll(user.id, user.accountType);
   }
 
   private meta(req: any) {

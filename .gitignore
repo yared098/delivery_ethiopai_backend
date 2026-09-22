@@ -7,4 +7,4 @@ dist/
 coverage/
 .vscode/
 .idea/
-prisma/migrations/dev.db*
+prisma/migrations/dev.db*uploads/

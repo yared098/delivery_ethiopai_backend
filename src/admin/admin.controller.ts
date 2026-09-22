@@ -4,92 +4,73 @@ import {
   Post,
   Body,
   Param,
-  Patch,
-  Delete,
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { IsString, MinLength } from 'class-validator';
 import { AdminService } from './admin.service';
 import { CreateStaffDto } from './dto/create-staff.dto';
-import { ListUsersQueryDto } from './dto/list-users-query.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+import { ListStaffQueryDto } from './dto/list-staff-query.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { Roles } from '../common/decorators/roles.decorator';
+import { StaffRoles } from '../common/decorators/staff-roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { Role } from '@prisma/client';
+import { StaffRole } from '@prisma/client';
 
-@Controller('admin')
+class ResetPasswordDto {
+  @IsString()
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  password: string;
+}
+
+@Controller('admin/staff')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AdminController {
   constructor(private admin: AdminService) {}
 
-  // ──────────────────────────────────────────────
-  // CREATE STAFF — Super Admin only
-  // ──────────────────────────────────────────────
-
-  @Post('users/regional-admin')
-  @Roles(Role.SUPER_ADMIN)
-  createRegionalAdmin(
-    @Body() dto: CreateStaffDto,
-    @CurrentUser('id') userId: string,
-  ) {
-    return this.admin.createStaff(
-      { ...dto, role: Role.REGIONAL_ADMIN },
-      userId,
-    );
+  @Post('regional-admin')
+  @StaffRoles(StaffRole.SUPER_ADMIN)
+  createRegionalAdmin(@Body() dto: CreateStaffDto, @CurrentUser() user: any) {
+    return this.admin.createStaff(dto, StaffRole.REGIONAL_ADMIN, user);
   }
 
-  @Post('users/branch-manager')
-  @Roles(Role.SUPER_ADMIN, Role.REGIONAL_ADMIN)
-  createBranchManager(
-    @Body() dto: CreateStaffDto,
-    @CurrentUser('id') userId: string,
-  ) {
-    return this.admin.createStaff(
-      { ...dto, role: Role.BRANCH_MANAGER },
-      userId,
-    );
+  @Post('branch-manager')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  createBranchManager(@Body() dto: CreateStaffDto, @CurrentUser() user: any) {
+    return this.admin.createStaff(dto, StaffRole.BRANCH_MANAGER, user);
   }
 
-  @Post('users/courier')
-  @Roles(Role.SUPER_ADMIN, Role.REGIONAL_ADMIN, Role.BRANCH_MANAGER)
-  createCourier(
-    @Body() dto: CreateStaffDto,
-    @CurrentUser('id') userId: string,
-  ) {
-    return this.admin.createStaff({ ...dto, role: Role.COURIER }, userId);
+  @Get()
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  listStaff(@Query() query: ListStaffQueryDto, @CurrentUser() user: any) {
+    return this.admin.listStaff(query, user);
   }
 
-  // ──────────────────────────────────────────────
-  // LIST / GET / UPDATE / DEACTIVATE
-  // ──────────────────────────────────────────────
-
-  @Get('users')
-  @Roles(Role.SUPER_ADMIN, Role.REGIONAL_ADMIN)
-  listUsers(@Query() query: ListUsersQueryDto, @CurrentUser() user: any) {
-    return this.admin.listUsers(query, user);
+  @Get(':id')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  getStaff(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.admin.getStaff(id, user);
   }
 
-  @Get('users/:id')
-  @Roles(Role.SUPER_ADMIN, Role.REGIONAL_ADMIN)
-  getUser(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.admin.getUser(id, user);
+  @Post(':id/suspend')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  suspend(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.admin.suspendStaff(id, user);
   }
 
-  @Patch('users/:id')
-  @Roles(Role.SUPER_ADMIN, Role.REGIONAL_ADMIN)
-  updateUser(
+  @Post(':id/reactivate')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  reactivate(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.admin.reactivateStaff(id, user);
+  }
+
+  @Post(':id/reset-password')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  resetPassword(
     @Param('id') id: string,
-    @Body() dto: UpdateUserDto,
+    @Body() dto: ResetPasswordDto,
     @CurrentUser() user: any,
   ) {
-    return this.admin.updateUser(id, dto, user);
-  }
-
-  @Delete('users/:id')
-  @Roles(Role.SUPER_ADMIN, Role.REGIONAL_ADMIN)
-  deactivateUser(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.admin.deactivateUser(id, user);
+    return this.admin.resetPassword(id, dto.password, user);
   }
 }

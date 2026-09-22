@@ -12,11 +12,9 @@ import { UpdateRegionDto } from './dto/update-region.dto';
 export class RegionsService {
   constructor(private prisma: PrismaService) {}
 
-  async create(dto: CreateRegionDto) {
+  async create(dto: CreateRegionDto, currentUser: any) {
     const existing = await this.prisma.region.findFirst({
-      where: {
-        OR: [{ name: dto.name }, { code: dto.code }],
-      },
+      where: { OR: [{ name: dto.name }, { code: dto.code }] },
     });
 
     if (existing) {
@@ -26,7 +24,14 @@ export class RegionsService {
     }
 
     return this.prisma.region.create({
-      data: { name: dto.name, code: dto.code },
+      data: {
+        name: dto.name,
+        code: dto.code,
+        createdById: currentUser.id,
+      },
+      include: {
+        createdBy: { select: { id: true, name: true, phone: true } },
+      },
     });
   }
 
@@ -34,8 +39,9 @@ export class RegionsService {
     return this.prisma.region.findMany({
       orderBy: { name: 'asc' },
       include: {
+        createdBy: { select: { id: true, name: true, phone: true } },
         _count: {
-          select: { users: true, branches: true },
+          select: { staff: true, branches: true, couriers: true },
         },
       },
     });
@@ -45,8 +51,14 @@ export class RegionsService {
     const region = await this.prisma.region.findUnique({
       where: { id },
       include: {
-        branches: { orderBy: { name: 'asc' } },
-        _count: { select: { users: true } },
+        createdBy: { select: { id: true, name: true, phone: true } },
+        branches: {
+          orderBy: { name: 'asc' },
+          include: {
+            createdBy: { select: { id: true, name: true } },
+          },
+        },
+        _count: { select: { staff: true, couriers: true } },
       },
     });
 
@@ -83,12 +95,13 @@ export class RegionsService {
   async remove(id: string) {
     await this.findOne(id);
 
-    const userCount = await this.prisma.user.count({ where: { regionId: id } });
+    const staffCount = await this.prisma.staff.count({ where: { regionId: id } });
     const branchCount = await this.prisma.branch.count({ where: { regionId: id } });
+    const courierCount = await this.prisma.courier.count({ where: { regionId: id } });
 
-    if (userCount > 0 || branchCount > 0) {
+    if (staffCount > 0 || branchCount > 0 || courierCount > 0) {
       throw new BadRequestException(
-        `Cannot delete region with ${userCount} users and ${branchCount} branches`,
+        `Cannot delete region with ${staffCount} staff, ${branchCount} branches, ${courierCount} couriers`,
       );
     }
 
