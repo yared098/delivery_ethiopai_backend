@@ -12,6 +12,7 @@ import { CouriersModule } from './couriers/couriers.module';
 import { CustomersModule } from './customers/customers.module';
 import { OrdersModule } from './orders/orders.module';
 import { TrackingModule } from './tracking/tracking.module';
+import { QrModule } from './qr/qr.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { PaymentProvidersModule } from './payment-providers/payment-providers.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -30,6 +31,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     CustomersModule,
     OrdersModule,
     TrackingModule,
+    QrModule,
     UploadsModule,
     PaymentProvidersModule,
   ],

@@ -13,6 +13,8 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { SendReceiverLinkDto } from './dto/send-receiver-link.dto';
+import { QrService } from '../qr/qr.service';
+import { AfroMessageService } from '../integrations/afromessage/afromessage.service';
 import {
   AccountType,
   OrderStatus,
@@ -28,6 +30,8 @@ export class OrdersService {
     private pricing: PricingService,
     private receiverLinks: ReceiverLinksService,
     private trackingWs: TrackingGateway,
+    private qr: QrService,                    // ← NEW
+    private sms: AfroMessageService,          // ← NEW
   ) {}
 
   private normalizePhone(phone: string): string {
@@ -205,20 +209,80 @@ export class OrdersService {
       return created;
     });
 
-    // ─── Receiver link ───
+    // ══════════════════════════════════════════════════
+    // POST-CREATE: QR + Tracking Link + SMS
+    // ══════════════════════════════════════════════════
+
+    // 1. Generate QR code
+    try {
+      await this.qr.generateForOrder(order.id, trackingNumber);
+    } catch (err) {
+      console.error('QR generation failed:', err);
+    }
+
+    // 2. Generate public tracking token + URL
+    //    NOTE: order already has trackingToken/trackingUrl from creation.
+    //    Only regenerate if QrService is authoritative. Using existing to avoid duplication.
+    let trackingUrl: string | null = (order as any).trackingUrl ?? null;
+    if (!trackingUrl) {
+      try {
+        const trackingResult = await this.qr.generateTrackingToken(order.id);
+        trackingUrl = trackingResult.url;
+      } catch (err) {
+        console.error('Tracking token generation failed:', err);
+      }
+    }
+
+    // 3. Generate receiver link if needed
     let receiverLink: any = null;
     if (dto.sendReceiverLink && !receiverComplete) {
-      receiverLink = await this.receiverLinks.createForOrder(
-        order.id,
-        receiverPhone,
-        currentUser.id,
-      );
+      try {
+        receiverLink = await this.receiverLinks.createForOrder(
+          order.id,
+          receiverPhone,
+          currentUser.id,
+        );
+
+        // Send SMS with receiver link
+        await this.sms.sendReceiverLink(
+          receiverPhone,
+          dto.sender.name,
+          receiverLink.url,
+        );
+      } catch (err) {
+        console.error('Receiver link creation/SMS failed:', err);
+      }
+    }
+
+    // 4. Send tracking link SMS to sender
+    if (dto.sender.phone && trackingUrl) {
+      try {
+        await this.sms.sendTrackingLink(
+          dto.sender.phone,
+          trackingNumber,
+          trackingUrl,
+        );
+      } catch (err) {
+        console.error('Sender tracking SMS failed:', err);
+      }
+    }
+
+    // 5. If receiver has phone and location was provided, send them the tracking link too
+    if (receiverPhone && trackingUrl && receiverComplete) {
+      try {
+        await this.sms.sendTrackingLink(
+          receiverPhone,
+          trackingNumber,
+          trackingUrl,
+        );
+      } catch (err) {
+        console.error('Receiver tracking SMS failed:', err);
+      }
     }
 
     // ─── Courier assignment ───
     let courierAssigned: any = null;
 
-    // Only assign if receiver location is known (order is assignable)
     if (status === OrderStatus.PENDING_PAYMENT) {
       if (dto.courierId) {
         // Manual assignment
@@ -250,7 +314,6 @@ export class OrdersService {
               }),
             ]);
 
-            // Update local order state
             (order as any).status = OrderStatus.ASSIGNED;
             (order as any).courierId = dto.courierId;
             (order as any).courier = {
@@ -260,7 +323,6 @@ export class OrdersService {
             };
             courierAssigned = courier;
 
-            // Broadcast via WebSocket
             this.trackingWs.broadcastStatusChange(order.id, {
               status: OrderStatus.ASSIGNED,
               note: `Courier ${courier.name} assigned`,
@@ -268,7 +330,6 @@ export class OrdersService {
             });
           }
         } catch (err) {
-          // Non-fatal — order was created, assignment failed silently
           console.error('Courier manual assignment failed:', err);
         }
       } else if (dto.autoAssignCourier) {
@@ -276,7 +337,6 @@ export class OrdersService {
         try {
           await this.autoAssignCourier(order.id, currentUser);
 
-          // Refetch to get latest state
           const updated = await this.prisma.order.findUnique({
             where: { id: order.id },
             include: {
@@ -291,13 +351,32 @@ export class OrdersService {
             courierAssigned = updated.courier;
           }
         } catch (err) {
-          // Non-fatal — auto-assign failed but order created
           console.error('Courier auto-assignment failed:', err);
         }
       }
     }
+    
 
-    return { order, receiverLink, courierAssigned };
+    // ══════════════════════════════════════════════════
+    // 5d — Refresh order to include all new fields
+    // ══════════════════════════════════════════════════
+    const finalOrder = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        items: true,
+        sender: { select: { id: true, name: true, phone: true } },
+        receiver: { select: { id: true, name: true, phone: true } },
+        originBranch: { select: { id: true, name: true, code: true } },
+        courier: { select: { id: true, name: true, phone: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+
+    return {
+      order: finalOrder,
+      receiverLink,
+      courierAssigned,
+    };
   }
 
   // ══════════════════════════════════════════════════
@@ -396,6 +475,7 @@ export class OrdersService {
 
     return order;
   }
+  
 
   // ══════════════════════════════════════════════════
   // UPDATE
@@ -524,7 +604,6 @@ export class OrdersService {
       throw new BadRequestException('Order already has a courier');
     }
 
-    // Determine required vehicles by weight
     let requiredVehicles: any[] = [];
     if (order.totalWeightKg <= 25) {
       requiredVehicles = ['MOTORCYCLE', 'BICYCLE', 'CAR'];
@@ -550,7 +629,6 @@ export class OrdersService {
       throw new BadRequestException('No available courier matching requirements');
     }
 
-    // Sort by distance from sender (if GPS is known)
     const sorted = candidates
       .map((c) => ({
         ...c,
@@ -736,7 +814,6 @@ export class OrdersService {
 
     return { message: 'Order cancelled' };
   }
-  
 
   // ══════════════════════════════════════════════════
   // UNASSIGN COURIER
@@ -799,6 +876,61 @@ export class OrdersService {
     });
 
     return { message: 'Courier unassigned' };
+  }
+
+  // ══════════════════════════════════════════════════
+  // DELETE (hard) — SUPER_ADMIN only
+  // ══════════════════════════════════════════════════
+  async remove(id: string, currentUser: any) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            items: true,
+            events: true,
+            receiverLinks: true,
+            payments: true,
+          },
+        },
+      },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    // Only SUPER_ADMIN may hard-delete
+    if (currentUser.role !== StaffRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only SUPER_ADMIN can delete orders');
+    }
+
+    // Block deletion of orders already in motion
+    const BLOCKED: OrderStatus[] = [
+      OrderStatus.PICKED_UP,
+      OrderStatus.IN_TRANSIT,
+      OrderStatus.OUT_FOR_DELIVERY,
+      OrderStatus.DELIVERED,
+    ];
+    if (BLOCKED.includes(order.status)) {
+      throw new BadRequestException(
+        `Cannot delete an order with status ${order.status.replace(/_/g, ' ')}. Cancel it instead.`,
+      );
+    }
+
+    // Cascade delete in a transaction
+    await this.prisma.$transaction(async (tx) => {
+      await tx.orderEvent.deleteMany({ where: { orderId: id } });
+      await tx.receiverLink.deleteMany({ where: { orderId: id } });
+      await tx.payment.deleteMany({ where: { orderId: id } });
+      await tx.orderItem.deleteMany({ where: { orderId: id } });
+      await tx.order.delete({ where: { id } });
+    });
+
+    // Notify live subscribers
+    this.trackingWs.broadcastOrderEnd(id, {
+      outcome: 'CANCELLED',
+      message: 'Order was deleted',
+    });
+
+    return { message: 'Order deleted', id };
   }
 
 }

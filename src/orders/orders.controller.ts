@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Post,
   Body,
@@ -133,4 +134,15 @@ export class OrdersController {
   cancel(@Param('id') id: string, @CurrentUser() user: any) {
     return this.orders.cancel(id, user);
   }
+
+  // ══════════════════════════════════════════════════
+  // DELETE (hard) — SUPER_ADMIN only
+  // ══════════════════════════════════════════════════
+
+  @Delete(':id')
+  @StaffRoles(StaffRole.SUPER_ADMIN)
+  remove(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.orders.remove(id, user);
+  }
+
 }
