@@ -15,6 +15,8 @@ import { TrackingModule } from './tracking/tracking.module';
 import { QrModule } from './qr/qr.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { PaymentProvidersModule } from './payment-providers/payment-providers.module';
+import { CustomerOrdersModule } from './customer-orders/customer-orders.module';
+import { PublicTrackingModule } from './public-tracking/public-tracking.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -34,6 +36,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     QrModule,
     UploadsModule,
     PaymentProvidersModule,
+    CustomerOrdersModule,
+    PublicTrackingModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })

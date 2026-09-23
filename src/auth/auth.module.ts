@@ -6,11 +6,12 @@ import { AuthService } from './auth.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { JwtStrategy } from './jwt.strategy';
+import { CustomerJwtStrategy } from './customer-jwt.strategy';
 
 @Module({
   imports: [PassportModule, JwtModule.register({})],
   controllers: [AuthController],
-  providers: [AuthService, OtpService, TokenService, JwtStrategy],
+  providers: [AuthService, OtpService, TokenService, JwtStrategy,CustomerJwtStrategy],
   exports: [AuthService, TokenService],
 })
 export class AuthModule {}

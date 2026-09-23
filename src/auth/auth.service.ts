@@ -3,6 +3,8 @@ import {
   UnauthorizedException,
   NotFoundException,
   ForbiddenException,
+    BadRequestException,   // ← ADD (if not already imported)
+
 } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
@@ -248,35 +250,186 @@ export class AuthService {
   // CUSTOMER (Phone + OTP)
   // ══════════════════════════════════════════════════
 
+  // async requestCustomerOtp(phone: string) {
+  //   await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
+  //   return { message: 'OTP sent' };
+  // }
   async requestCustomerOtp(phone: string) {
-    await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
-    return { message: 'OTP sent' };
-  }
+  const normalized = this.normalizePhone(phone);
 
-  async verifyCustomerOtp(phone: string, code: string, meta: Meta) {
-    const normalized = await this.otp.verifyOtp(phone, code, AccountType.CUSTOMER, 'login');
+  await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
 
-    let customer = await this.prisma.customer.findUnique({ where: { phone: normalized } });
-    if (!customer) {
-      customer = await this.prisma.customer.create({
-        data: { phone: normalized, phoneVerified: true },
-      });
-    } else if (!customer.phoneVerified) {
-      customer = await this.prisma.customer.update({
+  const existing = await this.prisma.customer.findUnique({
+    where: { phone: normalized },
+  });
+
+  return {
+    message: 'OTP sent',
+    phone: normalized,
+    isNewUser: !existing,
+  };
+}
+// ══════════════════════════════════════════════════
+// CUSTOMER — VERIFY OTP
+//   • Existing customer  → login, return tokens
+//   • New phone          → issue registrationToken for step 3
+// ══════════════════════════════════════════════════
+async verifyCustomerOtp(phone: string, code: string, meta: Meta) {
+  const normalized = await this.otp.verifyOtp(
+    phone,
+    code,
+    AccountType.CUSTOMER,
+    'login',
+  );
+
+  const customer = await this.prisma.customer.findUnique({
+    where: { phone: normalized },
+  });
+
+  // ── Case A: EXISTING CUSTOMER → LOGIN ──
+  if (customer) {
+    if (!customer.isActive) {
+      throw new UnauthorizedException('Account disabled');
+    }
+
+    if (!customer.phoneVerified) {
+      await this.prisma.customer.update({
         where: { id: customer.id },
         data: { phoneVerified: true },
       });
     }
-
-    if (!customer.isActive) throw new UnauthorizedException('Account disabled');
 
     const tokens = await this.tokens.issueTokens(
       { sub: customer.id, accountType: AccountType.CUSTOMER },
       meta,
     );
 
-    return { account: this.publicCustomer(customer), accountType: AccountType.CUSTOMER, ...tokens };
+    return {
+      isNewUser: false,
+      account: this.publicCustomer(customer),
+      accountType: AccountType.CUSTOMER,
+      ...tokens,
+    };
   }
+
+  // ── Case B: NEW PHONE → REGISTRATION REQUIRED ──
+  const registrationToken = randomUUID();
+  await this.redis.setex(
+    `customer:register:${registrationToken}`,
+    600, // 10 minutes
+    JSON.stringify({ phone: normalized, verifiedAt: Date.now() }),
+  );
+
+  return {
+    isNewUser: true,
+    requiresRegistration: true,
+    registrationToken,
+    phone: normalized,
+    message: 'OTP verified. Complete your profile to finish registration.',
+  };
+}
+
+// ══════════════════════════════════════════════════
+// CUSTOMER — COMPLETE REGISTRATION
+// ══════════════════════════════════════════════════
+async registerCustomer(
+  registrationToken: string,
+  dto: {
+    name: string;
+    email?: string;
+    defaultAddress?: string;
+    defaultLat?: number;
+    defaultLng?: number;
+  },
+  meta: Meta,
+) {
+  // 1. Validate registration token
+  const stored = await this.redis.get(`customer:register:${registrationToken}`);
+  if (!stored) {
+    throw new UnauthorizedException(
+      'Registration session expired. Please verify OTP again.',
+    );
+  }
+  const { phone } = JSON.parse(stored);
+
+  // 2. Guard: if the phone somehow already exists, log them in
+  const existing = await this.prisma.customer.findUnique({ where: { phone } });
+  if (existing) {
+    await this.redis.del(`customer:register:${registrationToken}`);
+
+    const tokens = await this.tokens.issueTokens(
+      { sub: existing.id, accountType: AccountType.CUSTOMER },
+      meta,
+    );
+
+    return {
+      isNewUser: false,
+      account: this.publicCustomer(existing),
+      accountType: AccountType.CUSTOMER,
+      ...tokens,
+    };
+  }
+
+  // 3. Validate name
+  const name = (dto.name || '').trim();
+  if (name.length < 2) {
+    throw new BadRequestException('Name is required (min 2 chars)');
+  }
+
+  // 4. Create the customer
+  const customer = await this.prisma.customer.create({
+    data: {
+      phone,
+      name,
+      email: dto.email || null,
+      defaultAddress: dto.defaultAddress || null,
+      defaultLat: dto.defaultLat ?? null,
+      defaultLng: dto.defaultLng ?? null,
+      phoneVerified: true,
+      registeredByType: AccountType.CUSTOMER,
+    },
+  });
+
+  // 5. Consume registration token
+  await this.redis.del(`customer:register:${registrationToken}`);
+
+  // 6. Issue JWT
+  const tokens = await this.tokens.issueTokens(
+    { sub: customer.id, accountType: AccountType.CUSTOMER },
+    meta,
+  );
+
+  return {
+    isNewUser: true,
+    account: this.publicCustomer(customer),
+    accountType: AccountType.CUSTOMER,
+    ...tokens,
+  };
+}
+  // async verifyCustomerOtp(phone: string, code: string, meta: Meta) {
+  //   const normalized = await this.otp.verifyOtp(phone, code, AccountType.CUSTOMER, 'login');
+
+  //   let customer = await this.prisma.customer.findUnique({ where: { phone: normalized } });
+  //   if (!customer) {
+  //     customer = await this.prisma.customer.create({
+  //       data: { phone: normalized, phoneVerified: true },
+  //     });
+  //   } else if (!customer.phoneVerified) {
+  //     customer = await this.prisma.customer.update({
+  //       where: { id: customer.id },
+  //       data: { phoneVerified: true },
+  //     });
+  //   }
+
+  //   if (!customer.isActive) throw new UnauthorizedException('Account disabled');
+
+  //   const tokens = await this.tokens.issueTokens(
+  //     { sub: customer.id, accountType: AccountType.CUSTOMER },
+  //     meta,
+  //   );
+
+  //   return { account: this.publicCustomer(customer), accountType: AccountType.CUSTOMER, ...tokens };
+  // }
 
   // ══════════════════════════════════════════════════
   // SESSION
@@ -343,5 +496,42 @@ export class AuthService {
       email: c.email,
       phoneVerified: c.phoneVerified,
     };
+  }
+
+    // ══════════════════════════════════════════════════
+  // CUSTOMER PROFILE
+  // ══════════════════════════════════════════════════
+
+  async getCustomerProfile(customerId: string) {
+    const c = await this.prisma.customer.findUnique({ where: { id: customerId } });
+    if (!c) throw new UnauthorizedException('Customer not found');
+
+    return {
+      id: c.id,
+      phone: c.phone,
+      name: c.name,
+      email: c.email,
+      defaultAddress: c.defaultAddress,
+      defaultLat: c.defaultLat,
+      defaultLng: c.defaultLng,
+      phoneVerified: c.phoneVerified,
+      createdAt: c.createdAt,
+    };
+  }
+
+  async updateCustomerProfile(customerId: string, dto: any) {
+    const data: any = {};
+    if (dto.name !== undefined) data.name = dto.name;
+    if (dto.email !== undefined) data.email = dto.email;
+    if (dto.defaultAddress !== undefined) data.defaultAddress = dto.defaultAddress;
+    if (dto.defaultLat !== undefined) data.defaultLat = dto.defaultLat;
+    if (dto.defaultLng !== undefined) data.defaultLng = dto.defaultLng;
+
+    const updated = await this.prisma.customer.update({
+      where: { id: customerId },
+      data,
+    });
+
+    return this.publicCustomer(updated);
   }
 }

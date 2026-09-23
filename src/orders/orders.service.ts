@@ -49,6 +49,15 @@ export class OrdersService {
     const senderPhone = this.normalizePhone(dto.sender.phone);
     const receiverPhone = this.normalizePhone(dto.receiver.phone);
 
+    // Only STAFF can be recorded as the order creator (FK: orders.createdById → staff.id)
+    const isStaff = currentUser?.accountType === AccountType.STAFF;
+    const staffActorId = isStaff ? currentUser.id : null;
+    const actorType: AccountType = isStaff
+      ? AccountType.STAFF
+      : AccountType.CUSTOMER;
+    const actorId = currentUser?.id ?? null;
+    const actorName = currentUser?.name ?? 'System';
+
     const receiverComplete =
       !!dto.receiver.name &&
       !!dto.receiver.address &&
@@ -163,7 +172,7 @@ export class OrdersService {
           paymentParty: dto.paymentParty || PaymentParty.SENDER,
           status,
 
-          createdById: currentUser.id,
+          createdById: staffActorId,
 
           items: {
             create: dto.items.map((it) => ({
@@ -199,9 +208,9 @@ export class OrdersService {
             status === OrderStatus.AWAITING_RECEIVER_LOCATION
               ? 'Waiting for receiver to share location'
               : 'Order created',
-          actorType: AccountType.STAFF,
-          actorId: currentUser.id,
-          actorName: currentUser.name,
+          actorType,
+          actorId,
+          actorName,
           isPublic: false,
         },
       });

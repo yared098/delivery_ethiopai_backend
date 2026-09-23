@@ -3,16 +3,24 @@ import {
   Controller,
   Post,
   Req,
+   Get,           // ← ADD
+  Patch, 
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { IsString } from 'class-validator';
 import { AuthService } from './auth.service';
 import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';  // ← ADD
+
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { CustomerJwtGuard } from 'src/common/guards/customer-jwt.guard';
+import { CurrentCustomer } from 'src/common/decorators/current-customer.decorator';
+import { RegisterCustomerDto } from './dto/register-customer.dto';
 
 class StaffLoginStep1Dto {
   @IsString()
@@ -105,6 +113,27 @@ export class AuthController {
   customerVerifyOtp(@Body() dto: VerifyOtpDto, @Req() req: any) {
     return this.auth.verifyCustomerOtp(dto.phone, dto.code, this.meta(req));
   }
+  // ══════════════════════════════════════════════════
+  // CUSTOMER — STEP 3: COMPLETE REGISTRATION
+  // Only needed when OTP verify returned isNewUser: true
+  // ══════════════════════════════════════════════════
+
+  @Public()
+  @Post('customer/register')
+  @HttpCode(HttpStatus.CREATED)
+  customerRegister(@Body() dto: RegisterCustomerDto, @Req() req: any) {
+    return this.auth.registerCustomer(
+      dto.registrationToken,
+      {
+        name: dto.name,
+        email: dto.email,
+        defaultAddress: dto.defaultAddress,
+        defaultLat: dto.defaultLat,
+        defaultLng: dto.defaultLng,
+      },
+      this.meta(req),
+    );
+  }
 
   // ══════════════════════════════════════════════════
   // SESSION
@@ -122,6 +151,24 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   logout(@Body() dto: RefreshTokenDto) {
     return this.auth.logout(dto.refreshToken);
+  }
+    // ══════════════════════════════════════════════════
+  // CUSTOMER PROFILE (requires customer JWT)
+  // ══════════════════════════════════════════════════
+
+  @UseGuards(CustomerJwtGuard)
+  @Get('customer/me')
+  getCustomerProfile(@CurrentCustomer() customer: any) {
+    return this.auth.getCustomerProfile(customer.id);
+  }
+
+  @UseGuards(CustomerJwtGuard)
+  @Patch('customer/me')
+  updateCustomerProfile(
+    @CurrentCustomer() customer: any,
+    @Body() dto: UpdateCustomerProfileDto,
+  ) {
+    return this.auth.updateCustomerProfile(customer.id, dto);
   }
 
   @Post('logout-all')
