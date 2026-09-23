@@ -175,6 +175,8 @@ model Staff {
 
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
+  deviceTokens  DeviceToken[]   // ← MOVE HERE
+
 
   @@index([phone])
   @@index([role])
@@ -256,6 +258,7 @@ model Courier {
 
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
+  deviceTokens  DeviceToken[]
 
   @@index([phone])
   @@index([regionId])
@@ -299,6 +302,7 @@ model Customer {
 
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
+  deviceTokens  DeviceToken[]
 
   @@index([phone])
   @@index([registeredById])
@@ -755,4 +759,35 @@ model OrderEvent {
   @@index([orderId])
   @@index([createdAt])
   @@map("order_events")
+}
+
+
+// ══════════════════════════════════════════════════
+// DEVICE TOKEN (FCM push notifications)
+// ══════════════════════════════════════════════════
+
+model DeviceToken {
+  id          String      @id @default(cuid())
+  token       String      @unique
+  platform    String
+  accountType AccountType
+  isActive    Boolean     @default(true)
+
+  customerId String?
+  courierId  String?
+  staffId    String?
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  courier  Courier?  @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  staff    Staff?    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  lastUsedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([courierId])
+  @@index([staffId])
+  @@index([accountType, isActive])
+  @@map("device_tokens")
 }

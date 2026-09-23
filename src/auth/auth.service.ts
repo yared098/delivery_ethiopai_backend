@@ -247,6 +247,60 @@ export class AuthService {
   }
 
   // ══════════════════════════════════════════════════
+// CUSTOMER — DEVICE TOKEN (FCM)
+// ══════════════════════════════════════════════════
+
+async registerCustomerDeviceToken(
+  customerId: string,
+  token: string,
+  platform: 'android' | 'ios' | 'web',
+) {
+  // Upsert — same token can be registered repeatedly
+  const existing = await this.prisma.deviceToken.findUnique({
+    where: { token },
+  });
+
+  if (existing) {
+    // Reassign to current customer (device might have switched accounts)
+    const updated = await this.prisma.deviceToken.update({
+      where: { token },
+      data: {
+        customerId,
+        courierId: null,        // clear other account types
+        staffId: null,
+        platform,
+        accountType: AccountType.CUSTOMER,
+        isActive: true,
+        lastUsedAt: new Date(),
+      },
+    });
+    return { id: updated.id, token: updated.token, platform: updated.platform };
+  }
+
+  const created = await this.prisma.deviceToken.create({
+    data: {
+      token,
+      platform,
+      accountType: AccountType.CUSTOMER,
+      customerId,
+      isActive: true,
+      lastUsedAt: new Date(),
+    },
+  });
+
+  return { id: created.id, token: created.token, platform: created.platform };
+}
+
+async removeCustomerDeviceToken(customerId: string, token: string) {
+  await this.prisma.deviceToken.updateMany({
+    where: { customerId, token },
+    data: { isActive: false },
+  });
+
+  return { message: 'Device token removed' };
+}
+
+  // ══════════════════════════════════════════════════
   // CUSTOMER (Phone + OTP)
   // ══════════════════════════════════════════════════
 

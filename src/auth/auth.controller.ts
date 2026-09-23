@@ -21,6 +21,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CustomerJwtGuard } from 'src/common/guards/customer-jwt.guard';
 import { CurrentCustomer } from 'src/common/decorators/current-customer.decorator';
 import { RegisterCustomerDto } from './dto/register-customer.dto';
+import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
 
 class StaffLoginStep1Dto {
   @IsString()
@@ -183,4 +184,33 @@ export class AuthController {
       ipAddress: req.ip,
     };
   }
+
+  // ══════════════════════════════════════════════════
+  // CUSTOMER — DEVICE TOKEN (FCM)
+  // ══════════════════════════════════════════════════
+
+  @UseGuards(CustomerJwtGuard)
+  @Post('customer/device-token')
+  @HttpCode(HttpStatus.OK)
+  registerDeviceToken(
+    @CurrentCustomer() customer: any,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.auth.registerCustomerDeviceToken(
+      customer.id,
+      dto.token,
+      dto.platform,
+    );
+  }
+
+  @UseGuards(CustomerJwtGuard)
+  @Post('customer/device-token/remove')
+  @HttpCode(HttpStatus.OK)
+  removeDeviceToken(
+    @CurrentCustomer() customer: any,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.auth.removeCustomerDeviceToken(customer.id, dto.token);
+  }
+
 }
