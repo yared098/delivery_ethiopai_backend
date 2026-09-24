@@ -1,12 +1,15 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';  // ← ADD
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import * as os from 'os';
+import { join } from 'path';                                         // ← ADD
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // 👇 ADD <NestExpressApplication> so we can call useStaticAssets()
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.use(
     helmet({
@@ -23,7 +26,17 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  app.setGlobalPrefix('api/v1');
+  // ══════════════════════════════════════════════════
+  // 🔑 THE FIX — serve /uploads/* as static files
+  // ══════════════════════════════════════════════════
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+  });
+
+  // Exclude /uploads/* from the api/v1 prefix
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['uploads/(.*)'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -35,7 +48,6 @@ async function bootstrap() {
 
   const port = Number(process.env.PORT) || 3000;
 
-  // 🔑 MUST bind to 0.0.0.0 for Render (and LAN devices)
   await app.listen(port, '0.0.0.0');
 
   const logger = new Logger('Bootstrap');
@@ -60,6 +72,7 @@ async function bootstrap() {
     logger.log(`📱 LAN:     http://${ip}:${port}/api/v1`);
   }
   logger.log(`🤖 Emu:     http://10.0.2.2:${port}/api/v1  (Android emulator)`);
+  logger.log(`🖼️  Files:   http://localhost:${port}/uploads/...`);
 }
 
 bootstrap();
