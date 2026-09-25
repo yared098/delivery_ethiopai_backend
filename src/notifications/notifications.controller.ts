@@ -1,12 +1,20 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
+  Param,
+  Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { StaffRole } from '@prisma/client';
+import {
+  AccountType,
+  NotificationType,
+  StaffRole,
+} from '@prisma/client';
 import { NotificationsService } from './notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
@@ -17,7 +25,7 @@ import {
 } from './dto/send-notification.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { StaffRoles } from '../common/decorators/staff-roles.decorator';   // ← FIXED
+import { StaffRoles } from '../common/decorators/staff-roles.decorator';
 
 @Controller('notifications')
 export class NotificationsController {
@@ -27,14 +35,9 @@ export class NotificationsController {
   ) {}
 
   // ══════════════════════════════════════════════════
-  // 🔑 DEVICE TOKEN REGISTRATION (any logged-in account)
+  // 🔑 DEVICE TOKEN REGISTRATION
   // ══════════════════════════════════════════════════
 
-  /**
-   * POST /api/v1/notifications/register-token
-   * Body: { token, platform, accountType }
-   * Auth: Bearer JWT (any account type)
-   */
   @UseGuards(JwtAuthGuard)
   @Post('register-token')
   @HttpCode(200)
@@ -47,7 +50,6 @@ export class NotificationsController {
       accountType: dto.accountType,
       isActive: true,
       lastUsedAt: new Date(),
-      // reset all account FKs first (device may switch accounts)
       customerId: null,
       courierId: null,
       staffId: null,
@@ -65,11 +67,6 @@ export class NotificationsController {
     return { ok: true, id: saved.id, platform: saved.platform };
   }
 
-  /**
-   * POST /api/v1/notifications/unregister-token
-   * Body: { token }
-   * Auth: Bearer JWT
-   */
   @UseGuards(JwtAuthGuard)
   @Post('unregister-token')
   @HttpCode(200)
@@ -81,11 +78,6 @@ export class NotificationsController {
     return { ok: true };
   }
 
-  /**
-   * POST /api/v1/notifications/test
-   * Send a test push to the caller's own devices.
-   * Auth: Bearer JWT
-   */
   @UseGuards(JwtAuthGuard)
   @Post('test')
   @HttpCode(200)
@@ -102,12 +94,8 @@ export class NotificationsController {
   // 🛡️ STAFF-ONLY: manual send & broadcast
   // ══════════════════════════════════════════════════
 
-  /**
-   * POST /api/v1/notifications/send
-   * Staff-only. Send a manual push to one account.
-   */
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)   // ← FIXED
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
   @Post('send')
   @HttpCode(200)
   async sendManual(@Body() dto: SendNotificationDto) {
@@ -119,12 +107,8 @@ export class NotificationsController {
     });
   }
 
-  /**
-   * POST /api/v1/notifications/broadcast
-   * Staff-only. Broadcast to an FCM topic.
-   */
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)   // ← FIXED
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
   @Post('broadcast')
   @HttpCode(200)
   async broadcast(@Body() dto: BroadcastNotificationDto) {
@@ -134,6 +118,173 @@ export class NotificationsController {
     return this.notifications.sendToTopic(dto.topic, {
       title: dto.title,
       body: dto.body,
+    });
+  }
+
+  // ══════════════════════════════════════════════════
+  // 🛡️ STAFF-ONLY: admin list + stats
+  // ══════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/notifications/admin/list
+   * List ALL notifications with filters + pagination.
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  @Get('admin/list')
+  async adminList(
+    @Query('accountType') accountType?: AccountType,
+    @Query('type') type?: NotificationType,
+    @Query('unread') unread?: string,
+    @Query('search') search?: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+  ) {
+    const where: any = {};
+    if (accountType) where.accountType = accountType;
+    if (type) where.type = type;
+    if (unread === 'true') where.isRead = false;
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { body: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const p = Math.max(1, Number(page));
+    const l = Math.min(100, Math.max(1, Number(limit)));
+    const skip = (p - 1) * l;
+
+    const [data, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          courier: { select: { id: true, name: true, phone: true } },
+          staff: { select: { id: true, name: true, phone: true } },
+          order: {
+            select: { id: true, trackingNumber: true, status: true },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: l,
+      }),
+      this.prisma.notification.count({ where }),
+    ]);
+
+    return {
+      data,
+      total,
+      page: p,
+      limit: l,
+      pages: Math.ceil(total / l),
+    };
+  }
+
+  /**
+   * GET /api/v1/notifications/admin/stats
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
+  @Get('admin/stats')
+  async adminStats() {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const [total, unread, pushed, failed, todayCount] = await Promise.all([
+      this.prisma.notification.count(),
+      this.prisma.notification.count({ where: { isRead: false } }),
+      this.prisma.notification.count({ where: { pushSent: true } }),
+      this.prisma.notification.count({
+        where: { pushError: { not: null } },
+      }),
+      this.prisma.notification.count({
+        where: { createdAt: { gte: startOfToday } },
+      }),
+    ]);
+
+    return { total, unread, pushed, failed, today: todayCount };
+  }
+
+  // ══════════════════════════════════════════════════
+  // 🔔 USER-FACING INBOX (for apps)
+  // ══════════════════════════════════════════════════
+
+  /**
+   * GET /api/v1/notifications
+   * List current account's notifications.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get()
+  async listMine(
+    @Req() req: any,
+    @Query('unread') unread?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const { id, type } = req.user;
+    const where: any = { accountType: type };
+    if (type === 'CUSTOMER') where.customerId = id;
+    if (type === 'COURIER') where.courierId = id;
+    if (type === 'STAFF') where.staffId = id;
+    if (unread === 'true') where.isRead = false;
+
+    return this.prisma.notification.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Number(limit) || 20, 100),
+    });
+  }
+
+  /**
+   * GET /api/v1/notifications/unread-count
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('unread-count')
+  async unreadCount(@Req() req: any) {
+    const { id, type } = req.user;
+    const where: any = { accountType: type, isRead: false };
+    if (type === 'CUSTOMER') where.customerId = id;
+    if (type === 'COURIER') where.courierId = id;
+    if (type === 'STAFF') where.staffId = id;
+
+    const count = await this.prisma.notification.count({ where });
+    return { count };
+  }
+
+  /**
+   * PATCH /api/v1/notifications/:id/read
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/read')
+  async markRead(@Param('id') id: string, @Req() req: any) {
+    const { id: accountId, type } = req.user;
+    const where: any = { id, accountType: type };
+    if (type === 'CUSTOMER') where.customerId = accountId;
+    if (type === 'COURIER') where.courierId = accountId;
+    if (type === 'STAFF') where.staffId = accountId;
+
+    return this.prisma.notification.updateMany({
+      where,
+      data: { isRead: true, readAt: new Date() },
+    });
+  }
+
+  /**
+   * PATCH /api/v1/notifications/read-all
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('read-all')
+  async markAllRead(@Req() req: any) {
+    const { id, type } = req.user;
+    const where: any = { accountType: type, isRead: false };
+    if (type === 'CUSTOMER') where.customerId = id;
+    if (type === 'COURIER') where.courierId = id;
+    if (type === 'STAFF') where.staffId = id;
+
+    return this.prisma.notification.updateMany({
+      where,
+      data: { isRead: true, readAt: new Date() },
     });
   }
 }

@@ -15,6 +15,8 @@ import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { SendReceiverLinkDto } from './dto/send-receiver-link.dto';
 import { QrService } from '../qr/qr.service';
 import { AfroMessageService } from '../integrations/afromessage/afromessage.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
 import {
   AccountType,
   OrderStatus,
@@ -32,6 +34,7 @@ export class OrdersService {
     private trackingWs: TrackingGateway,
     private qr: QrService,                    // ← NEW
     private sms: AfroMessageService,          // ← NEW
+    private notifications: NotificationsService, 
   ) {}
 
   private normalizePhone(phone: string): string {

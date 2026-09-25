@@ -175,8 +175,8 @@ model Staff {
 
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
-  deviceTokens  DeviceToken[]   // ← MOVE HERE
-
+  deviceTokens  DeviceToken[] // ← MOVE HERE
+  notifications Notification[]
 
   @@index([phone])
   @@index([role])
@@ -259,6 +259,7 @@ model Courier {
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
   deviceTokens  DeviceToken[]
+  notifications Notification[]
 
   @@index([phone])
   @@index([regionId])
@@ -303,6 +304,7 @@ model Customer {
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
   deviceTokens  DeviceToken[]
+  notifications Notification[]
 
   @@index([phone])
   @@index([registeredById])
@@ -559,6 +561,7 @@ model Order {
   earnings      CourierEarning[]
   events        OrderEvent[]
   receiverLinks ReceiverLink[]
+  notifications Notification[]
 
   @@index([trackingNumber])
   @@index([trackingToken])
@@ -761,7 +764,6 @@ model OrderEvent {
   @@map("order_events")
 }
 
-
 // ══════════════════════════════════════════════════
 // DEVICE TOKEN (FCM push notifications)
 // ══════════════════════════════════════════════════
@@ -790,4 +792,70 @@ model DeviceToken {
   @@index([staffId])
   @@index([accountType, isActive])
   @@map("device_tokens")
+}
+
+// ══════════════════════════════════════════════════
+// NOTIFICATION (in-app notification history)
+// ══════════════════════════════════════════════════
+
+enum NotificationType {
+  ORDER_CREATED
+  ORDER_STATUS_CHANGED
+  ORDER_ASSIGNED
+  ORDER_PICKED_UP
+  ORDER_DELIVERED
+  ORDER_FAILED
+  ORDER_CANCELLED
+  COURIER_APPROVED
+  COURIER_REJECTED
+  PAYOUT_PAID
+  RECEIVER_LINK
+  WELCOME
+  SYSTEM
+  MANUAL
+}
+
+model Notification {
+  id   String           @id @default(cuid())
+  type NotificationType
+
+  // Recipient
+  accountType AccountType
+  customerId  String?
+  courierId   String?
+  staffId     String?
+
+  // Content
+  title    String
+  body     String
+  imageUrl String?
+  data     Json? // { orderId, trackingNumber, status, ... }
+
+  // Related entity (optional)
+  orderId String?
+
+  // Read state (for in-app inbox)
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  // Delivery status
+  pushSent   Boolean   @default(false)
+  pushSentAt DateTime?
+  pushError  String?
+
+  createdAt DateTime  @default(now())
+  expiresAt DateTime?
+
+  // Relations
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  courier  Courier?  @relation(fields: [courierId], references: [id], onDelete: Cascade)
+  staff    Staff?    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  order    Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, isRead])
+  @@index([courierId, isRead])
+  @@index([staffId, isRead])
+  @@index([accountType, createdAt])
+  @@index([orderId])
+  @@map("notifications")
 }
