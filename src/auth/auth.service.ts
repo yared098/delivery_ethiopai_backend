@@ -14,6 +14,7 @@ import { TokenService } from './token.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { AccountType, CourierStatus, StaffRole } from '@prisma/client';
+import { NotificationsService } from 'src/notifications/notifications.service';
 
 interface Meta {
   userAgent?: string;
@@ -29,6 +30,8 @@ export class AuthService {
     private tokens: TokenService,
     private prisma: PrismaService,
     private config: ConfigService,
+    private notifications: NotificationsService,   // ← ADD
+
   ) {
     this.redis = new Redis(this.config.get<string>('REDIS_URL')!);
   }

@@ -10,3 +10,5 @@ coverage/
 prisma/migrations/dev.db*uploads/
 *.bak
 *.backup
+secrets/
+*.json

@@ -7,9 +7,11 @@ import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { JwtStrategy } from './jwt.strategy';
 import { CustomerJwtStrategy } from './customer-jwt.strategy';
+import { NotificationsModule } from 'src/notifications/notifications.module';
+
 
 @Module({
-  imports: [PassportModule, JwtModule.register({})],
+  imports: [PassportModule, NotificationsModule,JwtModule.register({})],
   controllers: [AuthController],
   providers: [AuthService, OtpService, TokenService, JwtStrategy,CustomerJwtStrategy],
   exports: [AuthService, TokenService],
