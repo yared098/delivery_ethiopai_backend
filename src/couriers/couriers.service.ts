@@ -72,7 +72,7 @@ export class CouriersService {
 
     const passwordHash = dto.password ? await argon2.hash(dto.password) : null;
 
-    // ✅ Explicitly build data with scalars only
+    //  Explicitly build data with scalars only
     const data: any = {
       phone,
       name: dto.name,
@@ -274,7 +274,7 @@ export class CouriersService {
       if (dup) throw new ConflictException('Vehicle plate already registered');
     }
 
-    // ✅ Build data with scalar fields only
+    //  Build data with scalar fields only
     const data: any = {};
 
     if (dto.name !== undefined) data.name = dto.name;

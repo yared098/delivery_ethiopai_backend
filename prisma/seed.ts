@@ -63,7 +63,7 @@ async function seedSuperAdmin() {
     });
   }
 
-  console.log(`\n✅ Super Admin ready:`);
+  console.log(`\n Super Admin ready:`);
   console.log(`   ID:    ${superAdmin.id}`);
   console.log(`   Phone: ${superAdmin.phone}`);
   console.log(`   Name:  ${superAdmin.name}`);

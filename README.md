@@ -150,16 +150,16 @@ curl http://localhost:3000/api/v1/users/me \
 
 ## 🔐 Security
 
-- ✅ OTP hashed with **argon2** — never stored plaintext
-- ✅ OTP expiry: **5 minutes** · Max attempts: **3**
-- ✅ OTP rate limit: **3 per 10 minutes** per phone (Redis-backed)
-- ✅ Access token: **15 minutes**
-- ✅ Refresh token: **30 days**, stored **hashed** in DB
-- ✅ Refresh rotation + **reuse detection** → entire token family revoked on theft
-- ✅ Global `JwtAuthGuard` — every route requires JWT unless `@Public()`
-- ✅ Role-based access control (RBAC) with `@Roles()` decorator
-- ✅ Region-scoped queries for multi-tenant isolation
-- ✅ Helmet, CORS, class-validator input sanitization
+-  OTP hashed with **argon2** — never stored plaintext
+-  OTP expiry: **5 minutes** · Max attempts: **3**
+-  OTP rate limit: **3 per 10 minutes** per phone (Redis-backed)
+-  Access token: **15 minutes**
+-  Refresh token: **30 days**, stored **hashed** in DB
+-  Refresh rotation + **reuse detection** → entire token family revoked on theft
+-  Global `JwtAuthGuard` — every route requires JWT unless `@Public()`
+-  Role-based access control (RBAC) with `@Roles()` decorator
+-  Region-scoped queries for multi-tenant isolation
+-  Helmet, CORS, class-validator input sanitization
 
 ---
 

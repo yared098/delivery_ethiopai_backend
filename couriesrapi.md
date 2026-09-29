@@ -1001,17 +1001,17 @@ lib/
 | POST   | `/auth/courier/otp/verify`  | ❌    | Verify OTP + receive tokens |
 | POST   | `/auth/refresh`             | ❌    | Refresh tokens              |
 | POST   | `/auth/logout`              | ❌    | Logout current session      |
-| POST   | `/auth/logout-all`          | ✅    | Logout all sessions         |
-| GET    | `/courier/me`               | ✅    | Get courier profile         |
-| PATCH  | `/courier/me`               | ✅    | Update profile              |
-| POST   | `/courier/me/online`        | ✅    | Go online                   |
-| POST   | `/courier/me/offline`       | ✅    | Go offline                  |
-| POST   | `/courier/me/location`      | ✅    | Update GPS location         |
-| GET    | `/courier/jobs`             | ✅    | List jobs                   |
-| GET    | `/courier/jobs/:id`         | ✅    | Job details                 |
-| GET    | `/courier/jobs/stats`       | ✅    | Job statistics              |
-| GET    | `/courier/earnings`         | ✅    | Earnings list               |
-| GET    | `/courier/earnings/summary` | ✅    | Earnings summary            |
+| POST   | `/auth/logout-all`          |     | Logout all sessions         |
+| GET    | `/courier/me`               |     | Get courier profile         |
+| PATCH  | `/courier/me`               |     | Update profile              |
+| POST   | `/courier/me/online`        |     | Go online                   |
+| POST   | `/courier/me/offline`       |     | Go offline                  |
+| POST   | `/courier/me/location`      |     | Update GPS location         |
+| GET    | `/courier/jobs`             |     | List jobs                   |
+| GET    | `/courier/jobs/:id`         |     | Job details                 |
+| GET    | `/courier/jobs/stats`       |     | Job statistics              |
+| GET    | `/courier/earnings`         |     | Earnings list               |
+| GET    | `/courier/earnings/summary` |     | Earnings summary            |
 
 ---
 

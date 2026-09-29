@@ -13,7 +13,7 @@ export const ORDER_STATUS_TEMPLATES: Partial<Record<OrderStatus, Template>> = {
     body: 'Complete payment to confirm your delivery.',
   },
   PAID: {
-    title: 'Payment Confirmed ✅',
+    title: 'Payment Confirmed ',
     body: 'We are finding a courier for you.',
   },
   ASSIGNED: {

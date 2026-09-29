@@ -67,7 +67,7 @@ export class TrackingGateway
           });
           client.data.user = payload;
           this.logger.log(
-            `✅ Socket connected: ${client.id} (user: ${payload.sub}, type: ${payload.accountType})`,
+            ` Socket connected: ${client.id} (user: ${payload.sub}, type: ${payload.accountType})`,
           );
         } catch (err) {
           // Invalid token — treat as public

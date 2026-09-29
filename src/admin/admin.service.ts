@@ -81,7 +81,7 @@ export class AdminService {
 
     const passwordHash = dto.password ? await argon2.hash(dto.password) : null;
 
-    // ✅ Build data object with ONLY scalar FKs (UncheckedCreateInput)
+    //  Build data object with ONLY scalar FKs (UncheckedCreateInput)
     const data: any = {
       phone,
       name: dto.name,

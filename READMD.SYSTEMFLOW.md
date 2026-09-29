@@ -215,7 +215,7 @@ deliver-ethiopia/
 
 ```
 1. Enter phone: 0911111111
-2. Server checks: role === SUPER_ADMIN ✅
+2. Server checks: role === SUPER_ADMIN 
 3. Server sends OTP via SMS
 4. Enter OTP → JWT issued
 ```
@@ -580,7 +580,7 @@ receiver's phone    driver's screen      (dual verify)
          • DeliveryProof created
                         ↓
        NOTIFIES:
-         • Sender: "Delivered ✅"
+         • Sender: "Delivered "
          • Receiver: "Enjoy!"
          • Courier: "Earning +147 ETB"
 ```
@@ -766,11 +766,11 @@ CANCELLED → order cancelled
 
 | Method | Endpoint | Auth | Purpose |
 |--------|----------|:-:|---------|
-| POST | `/customer/orders` | ✅ | Create order |
-| GET | `/customer/orders` | ✅ | My orders (sent+received) |
-| GET | `/customer/orders/:id` | ✅ | Order detail |
-| POST | `/customer/orders/:id/pay` | ✅ | Initiate payment |
-| POST | `/customer/orders/:id/share` | ✅ | Share tracking link |
+| POST | `/customer/orders` |  | Create order |
+| GET | `/customer/orders` |  | My orders (sent+received) |
+| GET | `/customer/orders/:id` |  | Order detail |
+| POST | `/customer/orders/:id/pay` |  | Initiate payment |
+| POST | `/customer/orders/:id/share` |  | Share tracking link |
 
 ### 11.3 Public (No Login)
 
@@ -788,32 +788,32 @@ CANCELLED → order cancelled
 
 | Method | Endpoint | Auth | Purpose |
 |--------|----------|:-:|---------|
-| GET | `/courier/orders?status=ACTIVE` | ✅ | My jobs |
-| POST | `/courier/orders/:id/accept` | ✅ | Accept |
-| POST | `/courier/orders/:id/reject` | ✅ | Reject |
-| POST | `/courier/orders/:id/scan-pickup` | ✅ | QR at pickup |
-| POST | `/courier/orders/:id/location` | ✅ | GPS stream |
-| POST | `/courier/orders/:id/scan-deliver` | ✅ | QR at delivery |
-| POST | `/courier/orders/:id/fail` | ✅ | Failed |
-| GET | `/courier/earnings` | ✅ | Earnings |
+| GET | `/courier/orders?status=ACTIVE` |  | My jobs |
+| POST | `/courier/orders/:id/accept` |  | Accept |
+| POST | `/courier/orders/:id/reject` |  | Reject |
+| POST | `/courier/orders/:id/scan-pickup` |  | QR at pickup |
+| POST | `/courier/orders/:id/location` |  | GPS stream |
+| POST | `/courier/orders/:id/scan-deliver` |  | QR at delivery |
+| POST | `/courier/orders/:id/fail` |  | Failed |
+| GET | `/courier/earnings` |  | Earnings |
 
 ### 11.5 Admin
 
 | Method | Endpoint | Auth | Roles |
 |--------|----------|:-:|-------|
-| POST | `/admin/regions` | ✅ | SUPER |
-| GET | `/admin/regions` | ✅ | SUPER |
-| POST | `/admin/branches` | ✅ | SUPER, REGIONAL |
-| POST | `/admin/staff/regional-admin` | ✅ | SUPER |
-| POST | `/admin/staff/branch-manager` | ✅ | SUPER, REGIONAL |
-| POST | `/admin/couriers` | ✅ | SUPER, REGIONAL, BRANCH |
-| POST | `/admin/orders` | ✅ | SUPER, REGIONAL, BRANCH |
-| POST | `/admin/orders/:id/assign-courier` | ✅ | SUPER, REGIONAL, BRANCH |
-| POST | `/admin/orders/:id/auto-assign` | ✅ | SUPER, REGIONAL, BRANCH |
-| POST | `/admin/orders/:id/unassign-courier` | ✅ | SUPER, REGIONAL |
-| POST | `/admin/orders/:id/send-receiver-link` | ✅ | SUPER, REGIONAL, BRANCH |
-| POST | `/admin/orders/:id/revoke-tracking` | ✅ | SUPER, REGIONAL, BRANCH |
-| POST | `/admin/payment-providers` | ✅ | SUPER |
+| POST | `/admin/regions` |  | SUPER |
+| GET | `/admin/regions` |  | SUPER |
+| POST | `/admin/branches` |  | SUPER, REGIONAL |
+| POST | `/admin/staff/regional-admin` |  | SUPER |
+| POST | `/admin/staff/branch-manager` |  | SUPER, REGIONAL |
+| POST | `/admin/couriers` |  | SUPER, REGIONAL, BRANCH |
+| POST | `/admin/orders` |  | SUPER, REGIONAL, BRANCH |
+| POST | `/admin/orders/:id/assign-courier` |  | SUPER, REGIONAL, BRANCH |
+| POST | `/admin/orders/:id/auto-assign` |  | SUPER, REGIONAL, BRANCH |
+| POST | `/admin/orders/:id/unassign-courier` |  | SUPER, REGIONAL |
+| POST | `/admin/orders/:id/send-receiver-link` |  | SUPER, REGIONAL, BRANCH |
+| POST | `/admin/orders/:id/revoke-tracking` |  | SUPER, REGIONAL, BRANCH |
+| POST | `/admin/payment-providers` |  | SUPER |
 
 ### 11.6 WebSocket Events
 
@@ -956,29 +956,29 @@ On **public** pages (tracking links, receiver links):
 
 | Menu | Super | Regional | Branch |
 |------|:-:|:-:|:-:|
-| Dashboard | ✅ | ✅ | ✅ |
-| Regions | ✅ | ❌ | ❌ |
-| Branches | ✅ | ✅ | ❌ |
-| Staff | ✅ | ✅ | ❌ |
-| Couriers | ✅ | ✅ | ✅ |
-| Customers | ✅ | ✅ | ✅ |
-| Orders | ✅ | ✅ | ✅ |
-| Payment Providers | ✅ | ❌ | ❌ |
+| Dashboard |  |  |  |
+| Regions |  | ❌ | ❌ |
+| Branches |  |  | ❌ |
+| Staff |  |  | ❌ |
+| Couriers |  |  |  |
+| Customers |  |  |  |
+| Orders |  |  |  |
+| Payment Providers |  | ❌ | ❌ |
 
 ### 15.2 API Permission Matrix
 
 | Endpoint | Super | Regional | Branch | Courier | Customer |
 |----------|:-:|:-:|:-:|:-:|:-:|
-| Create region | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Create branch | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Create staff | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Create courier | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Create order | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Assign courier | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Scan QR pickup | ❌ | ❌ | ❌ | ✅ | ❌ |
-| Scan QR deliver | ❌ | ❌ | ❌ | ✅ | ❌ |
-| View own orders | - | - | - | ✅ | ✅ |
-| View all orders | ✅ | ✅ (region) | ✅ (branch) | ❌ | ❌ |
+| Create region |  | ❌ | ❌ | ❌ | ❌ |
+| Create branch |  |  | ❌ | ❌ | ❌ |
+| Create staff |  |  | ❌ | ❌ | ❌ |
+| Create courier |  |  |  | ❌ | ❌ |
+| Create order |  |  |  | ❌ |  |
+| Assign courier |  |  |  | ❌ | ❌ |
+| Scan QR pickup | ❌ | ❌ | ❌ |  | ❌ |
+| Scan QR deliver | ❌ | ❌ | ❌ |  | ❌ |
+| View own orders | - | - | - |  |  |
+| View all orders |  |  (region) |  (branch) | ❌ | ❌ |
 
 ### 15.3 Region Scoping
 
