@@ -259,42 +259,54 @@ async registerCustomerDeviceToken(
   token: string,
   platform: 'android' | 'ios' | 'web',
 ) {
-  // Upsert — same token can be registered repeatedly
-  const existing = await this.prisma.deviceToken.findUnique({
-    where: { token },
-  });
+  const now = new Date();
 
-  if (existing) {
-    // Reassign to current customer (device might have switched accounts)
-    const updated = await this.prisma.deviceToken.update({
+  try {
+    const record = await this.prisma.deviceToken.upsert({
       where: { token },
-      data: {
+      update: {
         customerId,
-        courierId: null,        // clear other account types
+        courierId: null,
         staffId: null,
         platform,
         accountType: AccountType.CUSTOMER,
         isActive: true,
-        lastUsedAt: new Date(),
+        lastUsedAt: now,
+      },
+      create: {
+        token,
+        platform,
+        accountType: AccountType.CUSTOMER,
+        customerId,
+        isActive: true,
+        lastUsedAt: now,
       },
     });
-    return { id: updated.id, token: updated.token, platform: updated.platform };
+
+    return { id: record.id, token: record.token, platform: record.platform };
+  } catch (e) {
+    // Two upserts raced on first insert — fall back to a plain update.
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2002'
+    ) {
+      const record = await this.prisma.deviceToken.update({
+        where: { token },
+        data: {
+          customerId,
+          courierId: null,
+          staffId: null,
+          platform,
+          accountType: AccountType.CUSTOMER,
+          isActive: true,
+          lastUsedAt: now,
+        },
+      });
+      return { id: record.id, token: record.token, platform: record.platform };
+    }
+    throw e;
   }
-
-  const created = await this.prisma.deviceToken.create({
-    data: {
-      token,
-      platform,
-      accountType: AccountType.CUSTOMER,
-      customerId,
-      isActive: true,
-      lastUsedAt: new Date(),
-    },
-  });
-
-  return { id: created.id, token: created.token, platform: created.platform };
 }
-
 async removeCustomerDeviceToken(customerId: string, token: string) {
   await this.prisma.deviceToken.updateMany({
     where: { customerId, token },
