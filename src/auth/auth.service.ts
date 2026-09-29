@@ -13,8 +13,9 @@ import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
-import { AccountType, CourierStatus, StaffRole } from '@prisma/client';
+// import { AccountType, CourierStatus, StaffRole } from '@prisma/client';
 import { NotificationsService } from 'src/notifications/notifications.service';
+import { AccountType, CourierStatus, StaffRole, Prisma } from '@prisma/client';
 
 interface Meta {
   userAgent?: string;
@@ -307,10 +308,7 @@ async removeCustomerDeviceToken(customerId: string, token: string) {
   // CUSTOMER (Phone + OTP)
   // ══════════════════════════════════════════════════
 
-  // async requestCustomerOtp(phone: string) {
-  //   await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
-  //   return { message: 'OTP sent' };
-  // }
+ 
   async requestCustomerOtp(phone: string) {
   const normalized = this.normalizePhone(phone);
 
@@ -590,5 +588,118 @@ async registerCustomer(
     });
 
     return this.publicCustomer(updated);
+  }
+
+
+  // ══════════════════════════════════════════════════
+// COURIER — CHECK PHONE (dedicated, only checks couriers table)
+// ══════════════════════════════════════════════════
+async checkCourierPhone(rawPhone: string) {
+  const phone = this.normalizePhone(rawPhone);
+
+  const courier = await this.prisma.courier.findUnique({
+    where: { phone },
+    select: {
+      id: true,
+      phone: true,
+      name: true,
+      status: true,
+      isActive: true,
+      phoneVerified: true,
+      vehicleType: true,
+      regionId: true,
+      branchId: true,
+    },
+  });
+
+  // Not in couriers table at all
+  if (!courier) {
+    return {
+      phone,
+      isCourier: false,
+      exists: false,
+      message: 'No courier account with this phone',
+    };
+  }
+
+  // In couriers table, but status matters
+  return {
+    phone,
+    isCourier: true,
+    exists: true,
+    name: courier.name,
+    status: courier.status,           // PENDING | APPROVED | REJECTED | SUSPENDED
+    isActive: courier.isActive,
+    phoneVerified: courier.phoneVerified,
+    vehicleType: courier.vehicleType,
+    regionId: courier.regionId,
+    branchId: courier.branchId,
+    canLogin:
+      courier.isActive && courier.status === 'APPROVED',
+  };
+}
+
+  // ══════════════════════════════════════════════════
+  // COURIER — DEVICE TOKEN (FCM)
+  // ══════════════════════════════════════════════════
+  async registerCourierDeviceToken(
+  courierId: string,
+  token: string,
+  platform: 'android' | 'ios' | 'web',
+) {
+  const now = new Date();
+
+  try {
+    const record = await this.prisma.deviceToken.upsert({
+      where: { token },
+      update: {
+        courierId,
+        customerId: null,
+        staffId: null,
+        platform,
+        accountType: AccountType.COURIER,
+        isActive: true,
+        lastUsedAt: now,
+      },
+      create: {
+        token,
+        platform,
+        accountType: AccountType.COURIER,
+        courierId,
+        isActive: true,
+        lastUsedAt: now,
+      },
+    });
+
+    return { id: record.id, token: record.token, platform: record.platform };
+  } catch (e) {
+    if (
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === 'P2002'
+    ) {
+      const record = await this.prisma.deviceToken.update({
+        where: { token },
+        data: {
+          courierId,
+          customerId: null,
+          staffId: null,
+          platform,
+          accountType: AccountType.COURIER,
+          isActive: true,
+          lastUsedAt: now,
+        },
+      });
+      return { id: record.id, token: record.token, platform: record.platform };
+    }
+    throw e;
+  }
+}
+  async removeCourierDeviceToken(courierId: string, token: string) {
+    await this.prisma.deviceToken.updateMany({
+      where: { courierId, token },
+      data: { isActive: false },
+    });
+
+    return { message: 'Device token removed' };
   }
 }

@@ -15,13 +15,15 @@ import { RequestOtpDto } from './dto/request-otp.dto';
 import { VerifyOtpDto } from './dto/verify-otp.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';  // ← ADD
-
+import { CourierJwtGuard } from '../common/guards/courier-jwt.guard';
+import { CurrentCourier } from '../common/decorators/current-courier.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { CustomerJwtGuard } from 'src/common/guards/customer-jwt.guard';
 import { CurrentCustomer } from 'src/common/decorators/current-customer.decorator';
 import { RegisterCustomerDto } from './dto/register-customer.dto';
 import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
+import { CheckCourierPhoneDto } from './dto/check-courier-phone.dto';
 
 class StaffLoginStep1Dto {
   @IsString()
@@ -213,4 +215,43 @@ export class AuthController {
     return this.auth.removeCustomerDeviceToken(customer.id, dto.token);
   }
 
+  // ══════════════════════════════════════════════════
+// COURIER — CHECK PHONE (does this phone belong to a courier?)
+// ══════════════════════════════════════════════════
+
+@Public()
+@Post('courier/check-phone')
+@HttpCode(HttpStatus.OK)
+checkCourierPhone(@Body() dto: CheckCourierPhoneDto) {
+  return this.auth.checkCourierPhone(dto.phone);
+}
+
+
+  // ══════════════════════════════════════════════════
+  // COURIER — DEVICE TOKEN (FCM)
+  // ══════════════════════════════════════════════════
+
+  @UseGuards(CourierJwtGuard)
+  @Post('courier/device-token')
+  @HttpCode(HttpStatus.OK)
+  registerCourierDeviceToken(
+    @CurrentCourier() courier: any,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.auth.registerCourierDeviceToken(
+      courier.id,
+      dto.token,
+      dto.platform,
+    );
+  }
+
+  @UseGuards(CourierJwtGuard)
+  @Post('courier/device-token/remove')
+  @HttpCode(HttpStatus.OK)
+  removeCourierDeviceToken(
+    @CurrentCourier() courier: any,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.auth.removeCourierDeviceToken(courier.id, dto.token);
+  }
 }

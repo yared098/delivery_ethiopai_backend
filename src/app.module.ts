@@ -19,6 +19,8 @@ import { CustomerOrdersModule } from './customer-orders/customer-orders.module';
 import { PublicTrackingModule } from './public-tracking/public-tracking.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { NotificationsModule } from './notifications/notifications.module';
+import { CourierAppModule } from './courier-app/courier-app.module';
+
 
 @Module({
   imports: [
@@ -39,7 +41,8 @@ import { NotificationsModule } from './notifications/notifications.module';
     PaymentProvidersModule,
     CustomerOrdersModule,
     PublicTrackingModule,
-    NotificationsModule
+    NotificationsModule,
+    CourierAppModule
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
