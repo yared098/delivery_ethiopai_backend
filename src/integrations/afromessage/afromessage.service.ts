@@ -14,7 +14,8 @@ export class AfroMessageService {
   // ══════════════════════════════════════════════════
   private async send(phone: string, message: string): Promise<boolean> {
     const token = this.config.get<string>('AFROMESSAGE_TOKEN');
-    const sender = this.config.get<string>('AFROMESSAGE_SENDER') || 'DELIVER';
+    const from = this.config.get<string>('AFROMESSAGE_IDENTIFIER_ID');
+    const sender = this.config.get<string>('AFROMESSAGE_SENDER');
 
     // DEV MODE: no token → log to console
     if (!token) {
@@ -23,9 +24,32 @@ export class AfroMessageService {
     }
 
     try {
+      // Base params — always included
+      const params: Record<string, string> = {
+        to: phone,
+        message,
+      };
+
+      // Only include `from` if configured
+      if (from && from.trim()) {
+        params.from = from.trim();
+      }
+
+      // Only include `sender` if configured
+      if (sender && sender.trim()) {
+        params.sender = sender.trim();
+      }
+
+      this.logger.log(
+        `AfroMessage request → to=${phone} from=${params.from || '(default)'} sender=${params.sender || '(default)'}`,
+      );
+
       const res = await axios.get(`${this.baseUrl}/send`, {
-        params: { from: sender, sender, to: phone, message },
-        headers: { Authorization: `Bearer ${token}` },
+        params,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
         timeout: 10000,
       });
 
@@ -34,10 +58,20 @@ export class AfroMessageService {
         return true;
       }
 
-      this.logger.error(`AfroMessage failed: ${JSON.stringify(res.data)}`);
+      // AfroMessage returns errors in response.errors (array)
+      const errorMsg =
+        res.data?.response?.errors?.[0] ||
+        res.data?.response?.message ||
+        'Unknown AfroMessage error';
+
+      this.logger.error(`AfroMessage failed: ${errorMsg}`);
+      this.logger.error(`Full response: ${JSON.stringify(res.data)}`);
       return false;
     } catch (err: any) {
       this.logger.error(`AfroMessage error: ${err.message}`);
+      if (err.response?.data) {
+        this.logger.error(`Details: ${JSON.stringify(err.response.data)}`);
+      }
       return false;
     }
   }
