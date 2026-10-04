@@ -653,11 +653,11 @@ model Payment {
   orderId        String
   amount         Float
   currency       String        @default("ETB")
-  method         PaymentMethod
-  party          PaymentParty
-  gatewayRef     String?
-  gatewayPayload Json?
-  status         PaymentStatus @default(PENDING)
+  method         PaymentMethod     // CHAPA, TELEBIRR, CASH, ...
+  party          PaymentParty      // SENDER, RECEIVER, SPLIT
+  gatewayRef     String?           // ← Chapa's tx_ref: DEL-ETH-2026-...
+  gatewayPayload Json?             // ← Full Chapa response JSON
+  status         PaymentStatus     // PENDING → PAID / FAILED / REFUNDED
   paidAt         DateTime?
   refundedAt     DateTime?
   refundAmount   Float?
@@ -672,9 +672,8 @@ model Payment {
 
   @@index([orderId])
   @@index([status])
-  @@map("payments")
+  @@map("payments")        // ← DB table name
 }
-
 // ══════════════════════════════════════════════════
 // COURIER EARNING
 // ══════════════════════════════════════════════════

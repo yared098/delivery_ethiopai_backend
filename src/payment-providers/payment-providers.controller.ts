@@ -8,6 +8,7 @@ import {
   Delete,
   Query,
   UseGuards,
+  NotFoundException,
 } from '@nestjs/common';
 import { IsArray } from 'class-validator';
 import { PaymentProvidersService } from './payment-providers.service';
@@ -95,4 +96,26 @@ export class PaymentProvidersController {
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.providers.remove(id, user);
   }
+
+  @Get(':id/secret-status')
+@StaffRoles(StaffRole.SUPER_ADMIN)
+async secretStatus(@Param('id') id: string) {
+  // Directly query DB with secrets
+  const provider = await (this.providers as any).prisma.paymentProvider.findUnique({
+    where: { id },
+  });
+  if (!provider) throw new NotFoundException('Provider not found');
+  return {
+    code: provider.code,
+    hasApiKey: !!provider.apiKey,
+    hasApiSecret: !!provider.apiSecret,
+    apiSecretLength: provider.apiSecret?.length || 0,
+    apiSecretPrefix: provider.apiSecret?.slice(0, 14) || null,
+    apiSecretSuffix: provider.apiSecret?.slice(-4) || null,
+    merchantId: provider.merchantId,
+    webhookUrl: provider.webhookUrl,
+    isEnabled: provider.isEnabled,
+    isTestMode: provider.isTestMode,
+  };
+}
 }

@@ -46,10 +46,10 @@ export class PaymentProvidersService {
         feeFixed: dto.feeFixed ?? 0,
         minAmount: dto.minAmount,
         maxAmount: dto.maxAmount,
-        apiKey: dto.apiKey,
-        apiSecret: dto.apiSecret,
-        merchantId: dto.merchantId,
-        webhookUrl: dto.webhookUrl,
+        apiKey: dto.apiKey?.trim() || null,
+        apiSecret: dto.apiSecret?.trim() || null,
+        merchantId: dto.merchantId?.trim() || null,
+        webhookUrl: dto.webhookUrl?.trim() || null,
         configJson: dto.configJson,
         createdById: currentUser.id,
       },
@@ -127,7 +127,7 @@ export class PaymentProvidersService {
   }
 
   // ══════════════════════════════════════════════════
-  // UPDATE
+  // UPDATE — critical fix here
   // ══════════════════════════════════════════════════
   async update(id: string, dto: UpdateProviderDto, currentUser: any) {
     if (currentUser.role !== StaffRole.SUPER_ADMIN) {
@@ -136,8 +136,32 @@ export class PaymentProvidersService {
 
     await this.findOne(id);
 
-    const data: any = { ...dto, updatedById: currentUser.id };
+    const data: any = { updatedById: currentUser.id };
 
+    // Copy all fields EXCEPT apiSecret / apiKey / configJson (handled separately)
+    const { apiSecret, apiKey, configJson, ...rest } = dto;
+    Object.assign(data, rest);
+
+    // ✅ Only update apiSecret if a NON-EMPTY value was provided
+    if (
+      apiSecret !== undefined &&
+      apiSecret !== null &&
+      apiSecret.trim() !== ''
+    ) {
+      data.apiSecret = apiSecret.trim();
+    }
+
+    // ✅ Only update apiKey if NON-EMPTY
+    if (apiKey !== undefined && apiKey !== null && apiKey.trim() !== '') {
+      data.apiKey = apiKey.trim();
+    }
+
+    // configJson: update if provided
+    if (configJson !== undefined && configJson !== null) {
+      data.configJson = configJson;
+    }
+
+    // Handle code change
     if (dto.code) {
       const code = dto.code.toUpperCase().trim();
       const existing = await this.prisma.paymentProvider.findUnique({
@@ -213,7 +237,7 @@ export class PaymentProvidersService {
   }
 
   // ══════════════════════════════════════════════════
-  // HELPER
+  // HELPER — SAFE select (never returns secrets)
   // ══════════════════════════════════════════════════
   private publicSelect() {
     return {
@@ -233,6 +257,12 @@ export class PaymentProvidersService {
       maxAmount: true,
       merchantId: true,
       webhookUrl: true,
+
+      // ⚠️ Secrets are NOT selected — never sent to frontend
+      // Frontend can use these boolean flags to know if a key exists
+      apiKey: true,        // ← public key, safe to return
+      // apiSecret: NOT selected (commented means omitted)
+
       createdAt: true,
       updatedAt: true,
       createdBy: { select: { id: true, name: true } },
