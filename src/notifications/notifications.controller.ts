@@ -287,4 +287,55 @@ export class NotificationsController {
       data: { isRead: true, readAt: new Date() },
     });
   }
+
+  @UseGuards(JwtAuthGuard)
+@Post('subscribe-topic')
+@HttpCode(200)
+async subscribeTopic(
+  @Body() body: { topic: string },
+  @Req() req: any,
+) {
+  const { id, type } = req.user;
+
+  // Get all active tokens for this account
+  const where: any = { accountType: type, isActive: true };
+  if (type === 'CUSTOMER') where.customerId = id;
+  if (type === 'COURIER') where.courierId = id;
+  if (type === 'STAFF') where.staffId = id;
+
+  const tokens = await this.prisma.deviceToken.findMany({ where });
+  const tokenStrings = tokens.map((t) => t.token);
+
+  if (!tokenStrings.length) {
+    return { ok: false, error: 'No active tokens' };
+  }
+
+  await this.notifications.subscribeToTopic(tokenStrings, body.topic);
+  return { ok: true, subscribed: tokenStrings.length, topic: body.topic };
+}
+
+@UseGuards(JwtAuthGuard)
+@Post('unsubscribe-topic')
+@HttpCode(200)
+async unsubscribeTopic(
+  @Body() body: { topic: string },
+  @Req() req: any,
+) {
+  const { id, type } = req.user;
+
+  const where: any = { accountType: type, isActive: true };
+  if (type === 'CUSTOMER') where.customerId = id;
+  if (type === 'COURIER') where.courierId = id;
+  if (type === 'STAFF') where.staffId = id;
+
+  const tokens = await this.prisma.deviceToken.findMany({ where });
+  const tokenStrings = tokens.map((t) => t.token);
+
+  if (!tokenStrings.length) {
+    return { ok: false, error: 'No active tokens' };
+  }
+
+  await this.notifications.unsubscribeFromTopic(tokenStrings, body.topic);
+  return { ok: true, unsubscribed: tokenStrings.length, topic: body.topic };
+}
 }

@@ -81,24 +81,36 @@ export class PaymentsService {
     // Contact info — prefer sender, fallback to receiver
     const payer =
       party === PaymentParty.RECEIVER ? order.receiver : order.sender;
-const email =
-  dto.email ||
-  payer?.email ||
-  'yades.dev@gmail.com';   // ← valid domain, Chapa accepts it
+
+    const email =
+      dto.email ||
+      payer?.email ||
+      'yades.dev@gmail.com';
+
     const firstName = dto.firstName || payer?.name?.split(' ')[0] || 'Customer';
     const lastName =
       dto.lastName || payer?.name?.split(' ').slice(1).join(' ') || 'User';
     const phone = dto.phone || payer?.phone || order.senderPhone;
-    const APP_URL = process.env.APP_URL || 'http://localhost:5174';
 
+    // Backend URL — where Chapa POSTs the webhook
+    const BACKEND_URL =
+      process.env.BACKEND_URL ||
+      process.env.APP_URL ||
+      'http://localhost:3000';
+
+    // Frontend URL — where the user's browser redirects after payment
+    const FRONTEND_URL =
+      process.env.FRONTEND_URL ||
+      process.env.APP_URL ||
+      'http://localhost:5174';
 
     const webhookUrl =
-  provider.webhookUrl ||
-  `${APP_URL}/api/v1/payments/chapa/webhook`;
+      provider.webhookUrl ||
+      `${BACKEND_URL}/api/v1/payments/chapa/webhook`;
 
-const returnUrl =
-  dto.returnUrl ||
-  `${APP_URL}/payment/success?tx_ref=${txRef}`;
+    const returnUrl =
+      dto.returnUrl ||
+      `${FRONTEND_URL}/payment/success?tx_ref=${txRef}`;
 
     const { checkoutUrl } = await this.chapa.initialize({
       amount,
@@ -190,7 +202,6 @@ const returnUrl =
   async handleChapaWebhook(body: any) {
     this.logger.log('Chapa webhook received: ' + JSON.stringify(body));
 
-    // Chapa sends tx_ref at top level or nested
     const txRef =
       body?.tx_ref || body?.trx_ref || body?.data?.tx_ref || body?.reference;
 
@@ -199,7 +210,6 @@ const returnUrl =
       return { ok: true };
     }
 
-    // ALWAYS re-verify server-side — never trust webhook body alone
     try {
       await this.verifyChapaPayment(txRef);
     } catch (e: any) {
@@ -220,37 +230,213 @@ const returnUrl =
   }
 
   // ══════════════════════════════════════════════════
-  // REFUND (manual record — Chapa refund API optional)
+  // LIST MY PAYMENTS (customer OR courier)
   // ══════════════════════════════════════════════════
-  async markRefunded(
-    paymentId: string,
-    reason: string,
-    amount?: number,
-    staffId?: string,
+  async listMyPayments(
+    userId: string,
+    accountType: 'CUSTOMER' | 'COURIER' | 'STAFF',
   ) {
-    const payment = await this.prisma.payment.findUnique({
-      where: { id: paymentId },
-    });
-    if (!payment) throw new NotFoundException('Payment not found');
-    if (payment.status !== PaymentStatus.PAID)
-      throw new BadRequestException('Only PAID payments can be refunded');
+    // ── COURIER: payments for orders they are assigned to ──
+    if (accountType === 'COURIER') {
+      return this.prisma.payment.findMany({
+        where: {
+          order: { courierId: userId },
+        },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          order: {
+            select: {
+              id: true,
+              trackingNumber: true,
+              senderName: true,
+              receiverName: true,
+              deliveryFee: true,
+              courierEarning: true,
+            },
+          },
+        },
+        take: 100,
+      });
+    }
 
-    await this.prisma.payment.update({
-      where: { id: paymentId },
-      data: {
-        status: PaymentStatus.REFUNDED,
-        refundedAt: new Date(),
-        refundAmount: amount ?? payment.amount,
-        refundReason: reason,
-        createdById: staffId,
+    // ── CUSTOMER: payments for orders they sent or received ──
+    return this.prisma.payment.findMany({
+      where: {
+        order: {
+          OR: [
+            { senderId: userId },
+            { receiverId: userId },
+          ],
+        },
       },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        order: {
+          select: {
+            id: true,
+            trackingNumber: true,
+            senderName: true,
+            receiverName: true,
+            deliveryFee: true,
+            courierEarning: true,
+          },
+        },
+      },
+      take: 100,
     });
-
-    await this.prisma.order.update({
-      where: { id: payment.orderId },
-      data: { paymentStatus: PaymentStatus.REFUNDED },
-    });
-
-    return { message: 'Payment marked as refunded' };
   }
+
+  async markRefunded(
+  paymentId: string,
+  reason: string,
+  amount?: number,
+  staffId?: string,
+) {
+  this.logger.log(
+    `markRefunded: paymentId=${paymentId}, staffId=${staffId || '(none)'}`,
+  );
+
+  const payment = await this.prisma.payment.findUnique({
+    where: { id: paymentId },
+  });
+  if (!payment) throw new NotFoundException('Payment not found');
+  if (payment.status !== PaymentStatus.PAID)
+    throw new BadRequestException('Only PAID payments can be refunded');
+
+  // ── Verify staff exists before using as FK ──
+  let validStaffId: string | undefined = undefined;
+  if (staffId) {
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: staffId },
+      select: { id: true },
+    });
+    if (staff) {
+      validStaffId = staff.id;
+    } else {
+      this.logger.warn(
+        `⚠️  Staff "${staffId}" not found — refund will be recorded WITHOUT createdById`,
+      );
+    }
+  }
+
+  await this.prisma.payment.update({
+    where: { id: paymentId },
+    data: {
+      status: PaymentStatus.REFUNDED,
+      refundedAt: new Date(),
+      refundAmount: amount ?? payment.amount,
+      refundReason: reason,
+      // Only set if we verified the staff exists
+      ...(validStaffId ? { createdById: validStaffId } : {}),
+    },
+  });
+
+  await this.prisma.order.update({
+    where: { id: payment.orderId },
+    data: { paymentStatus: PaymentStatus.REFUNDED },
+  });
+
+  return { message: 'Payment marked as refunded' };
+}
+  // ══════════════════════════════════════════════════
+// LIST ALL PAYMENTS (admin)
+// ══════════════════════════════════════════════════
+async listAllPayments(filters: {
+  page: number;
+  limit: number;
+  status?: string;
+  method?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+}) {
+  const { page, limit, status, method, search, from, to } = filters;
+  const skip = (page - 1) * limit;
+
+  const where: any = {};
+
+  if (status) where.status = status;
+  if (method) where.method = method;
+
+  if (from || to) {
+    where.createdAt = {};
+    if (from) where.createdAt.gte = new Date(from);
+    if (to) where.createdAt.lte = new Date(to);
+  }
+
+  if (search) {
+    where.OR = [
+      { gatewayRef: { contains: search, mode: 'insensitive' } },
+      { order: { trackingNumber: { contains: search, mode: 'insensitive' } } },
+    ];
+  }
+
+  const [data, total] = await Promise.all([
+    this.prisma.payment.findMany({
+      where,
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        order: {
+          select: {
+            id: true,
+            trackingNumber: true,
+            senderName: true,
+            senderPhone: true,
+            receiverName: true,
+            receiverPhone: true,
+            deliveryFee: true,
+            courierEarning: true,
+            status: true,
+          },
+        },
+        createdBy: {
+          select: { id: true, name: true },
+        },
+      },
+    }),
+    this.prisma.payment.count({ where }),
+  ]);
+
+  return {
+    data,
+    total,
+    page,
+    limit,
+    pages: Math.ceil(total / limit),
+  };
+}
+
+// ══════════════════════════════════════════════════
+// PAYMENT STATS
+// ══════════════════════════════════════════════════
+async getPaymentStats() {
+  const [totalCount, totalPaid, totalPending, totalFailed, totalRefunded] =
+    await Promise.all([
+      this.prisma.payment.count(),
+      this.prisma.payment.aggregate({
+        where: { status: 'PAID' },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      this.prisma.payment.count({ where: { status: 'PENDING' } }),
+      this.prisma.payment.count({ where: { status: 'FAILED' } }),
+      this.prisma.payment.aggregate({
+        where: { status: 'REFUNDED' },
+        _sum: { refundAmount: true },
+        _count: true,
+      }),
+    ]);
+
+  return {
+    totalCount,
+    totalPaidAmount: totalPaid._sum.amount || 0,
+    totalPaidCount: totalPaid._count,
+    pendingCount: totalPending,
+    failedCount: totalFailed,
+    refundedAmount: totalRefunded._sum.refundAmount || 0,
+    refundedCount: totalRefunded._count,
+  };
+}
 }

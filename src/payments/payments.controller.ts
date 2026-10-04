@@ -17,7 +17,7 @@ import { Public } from '../common/decorators/public.decorator';
 export class PaymentsController {
   constructor(
     private payments: PaymentsService,
-    private providers: PaymentProvidersService,   // ← ADD THIS
+    private providers: PaymentProvidersService,
   ) {}
 
   /**
@@ -25,7 +25,6 @@ export class PaymentsController {
    * PUBLIC — List enabled providers
    * ══════════════════════════════════════════════
    * Used by customer app, courier app, public checkout.
-   * No auth needed.
    */
   @Public()
   @Get('providers')
@@ -34,7 +33,10 @@ export class PaymentsController {
   }
 
   /**
-   * Init Chapa — accepts CUSTOMER, STAFF, or COURIER token
+   * ══════════════════════════════════════════════
+   * AUTH — Init Chapa payment
+   * ══════════════════════════════════════════════
+   * Accepts CUSTOMER, STAFF, or COURIER token
    */
   @UseGuards(AnyAuthGuard)
   @Post('chapa/init')
@@ -47,9 +49,38 @@ export class PaymentsController {
     return this.payments.initChapaPayment(dto, payerId);
   }
 
+  /**
+   * ══════════════════════════════════════════════
+   * PUBLIC — Verify Chapa payment
+   * ══════════════════════════════════════════════
+   */
   @Public()
   @Get('chapa/verify/:txRef')
   verify(@Param('txRef') txRef: string) {
     return this.payments.verifyChapaPayment(txRef);
+  }
+
+  /**
+   * ══════════════════════════════════════════════
+   * AUTH — List MY payments (history)
+   * ══════════════════════════════════════════════
+   * Works for CUSTOMER, COURIER, and STAFF.
+   *   - Customer → their payments (as sender or receiver)
+   *   - Courier  → payments for orders they delivered
+   *   - Staff    → their recorded payments
+   */
+  @UseGuards(AnyAuthGuard)
+  @Get('history')
+  async listMyPayments(@Req() req: any) {
+    if (req.courier) {
+      return this.payments.listMyPayments(req.courier.id, 'COURIER');
+    }
+    if (req.staff) {
+      return this.payments.listMyPayments(req.staff.id, 'STAFF');
+    }
+    if (req.customer) {
+      return this.payments.listMyPayments(req.customer.id, 'CUSTOMER');
+    }
+    return [];
   }
 }
