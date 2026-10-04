@@ -7,13 +7,13 @@ import { PaymentsController } from './payments.controller';
 import { ChapaWebhookController } from './chapa-webhook.controller';
 import { AdminPaymentsController } from './admin-payments.controller';
 import { PrismaModule } from '../prisma/prisma.module';
-import { PaymentProvidersModule } from '../payment-providers/payment-providers.module';  // ← ADD
+import { PaymentProvidersModule } from '../payment-providers/payment-providers.module';
 import { AnyAuthGuard } from '../common/guards/any-auth.guard';
 
 @Module({
   imports: [
     PrismaModule,
-    PaymentProvidersModule,       // ← ADD this
+    PaymentProvidersModule,      // ← This must be present
     ConfigModule,
     JwtModule.registerAsync({
       useFactory: () => ({
