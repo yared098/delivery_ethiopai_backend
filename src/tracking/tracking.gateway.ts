@@ -37,7 +37,6 @@ export class TrackingGateway
 
   private readonly logger = new Logger(TrackingGateway.name);
 
-  // Track connections: socketId → { userId, accountType, rooms }
   private connections = new Map<string, SocketData>();
 
   constructor(
@@ -50,7 +49,6 @@ export class TrackingGateway
   // ══════════════════════════════════════════════════
   async handleConnection(client: Socket) {
     try {
-      // Try to authenticate (optional — public tracking allowed)
       const token =
         client.handshake.auth?.token ||
         client.handshake.headers?.authorization?.replace('Bearer ', '');
@@ -70,7 +68,6 @@ export class TrackingGateway
             ` Socket connected: ${client.id} (user: ${payload.sub}, type: ${payload.accountType})`,
           );
         } catch (err) {
-          // Invalid token — treat as public
           this.connections.set(client.id, {});
           this.logger.warn(`⚠️  Socket connected (public): ${client.id}`);
         }
@@ -123,6 +120,24 @@ export class TrackingGateway
     const room = `order:${data.orderId}`;
     await client.leave(room);
     return { success: true };
+  }
+
+  // ══════════════════════════════════════════════════
+  // 🆕 AUTO-ASSIGN: EMIT STATUS (used by AutoAssignService)
+  // ══════════════════════════════════════════════════
+  emitStatus(
+    orderIdOrTracking: string,
+    status: string,
+    note?: string,
+  ) {
+    const room = `order:${orderIdOrTracking}`;
+    this.server.to(room).emit('tracking:status', {
+      orderId: orderIdOrTracking,
+      status,
+      note,
+      timestamp: new Date().toISOString(),
+    });
+    this.logger.log(`🔄 Status emitted for ${room}: ${status}`);
   }
 
   // ══════════════════════════════════════════════════
@@ -220,7 +235,10 @@ export class TrackingGateway
    */
   broadcastOrderEnd(
     orderId: string,
-    data: { outcome: 'DELIVERED' | 'CANCELLED' | 'FAILED' | 'RETURNED'; message?: string },
+    data: {
+      outcome: 'DELIVERED' | 'CANCELLED' | 'FAILED' | 'RETURNED';
+      message?: string;
+    },
   ) {
     const room = `order:${orderId}`;
     this.server.to(room).emit('order:end', {

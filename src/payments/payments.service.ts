@@ -8,6 +8,8 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChapaService } from './chapa.service';
 import { InitChapaPaymentDto } from './dto/init-chapa-payment.dto';
+import { AutoAssignService } from '../auto-assign/auto-assign.service';
+
 import {
   PaymentMethod,
   PaymentStatus,
@@ -22,6 +24,8 @@ export class PaymentsService {
   constructor(
     private prisma: PrismaService,
     private chapa: ChapaService,
+      private autoAssign: AutoAssignService,   // 👈 ADD THIS
+
   ) {}
 
   // ══════════════════════════════════════════════════
@@ -138,63 +142,135 @@ export class PaymentsService {
   // ══════════════════════════════════════════════════
   // VERIFY CHAPA PAYMENT
   // ══════════════════════════════════════════════════
+  // async verifyChapaPayment(txRef: string) {
+  //   const payment = await this.prisma.payment.findFirst({
+  //     where: { gatewayRef: txRef },
+  //   });
+
+  //   if (!payment) throw new NotFoundException('Payment not found');
+
+  //   // Idempotent — don't double-verify if already PAID
+  //   if (payment.status === PaymentStatus.PAID) {
+  //     return { status: payment.status, verified: true, alreadyPaid: true };
+  //   }
+
+  //   const result = await this.chapa.verify(txRef);
+
+  //   const newStatus = result.verified
+  //     ? PaymentStatus.PAID
+  //     : PaymentStatus.FAILED;
+
+  //   await this.prisma.$transaction(async (tx) => {
+  //     await tx.payment.update({
+  //       where: { id: payment.id },
+  //       data: {
+  //         status: newStatus,
+  //         paidAt: result.verified ? new Date() : null,
+  //         gatewayPayload: result.raw as any,
+  //       },
+  //     });
+
+  //     if (result.verified) {
+  //       await tx.order.update({
+  //         where: { id: payment.orderId },
+  //         data: {
+  //           paymentStatus: PaymentStatus.PAID,
+  //           paymentMethod: PaymentMethod.CHAPA,
+  //           paidAt: new Date(),
+  //           status: OrderStatus.PAID,
+  //         },
+  //       });
+
+  //       await tx.orderEvent.create({
+  //         data: {
+  //           orderId: payment.orderId,
+  //           status: OrderStatus.PAID,
+  //           note: `Payment received via Chapa (${txRef})`,
+  //           isPublic: true,
+  //         },
+  //       });
+  //     }
+  //   });
+
+  //   return {
+  //     status: newStatus,
+  //     verified: result.verified,
+  //     amount: result.amount,
+  //     paymentMethod: result.paymentMethod,
+  //   };
+  // }
+
   async verifyChapaPayment(txRef: string) {
-    const payment = await this.prisma.payment.findFirst({
-      where: { gatewayRef: txRef },
+  const payment = await this.prisma.payment.findFirst({
+    where: { gatewayRef: txRef },
+  });
+
+  if (!payment) throw new NotFoundException('Payment not found');
+
+  // Idempotent — don't double-verify if already PAID
+  if (payment.status === PaymentStatus.PAID) {
+    return { status: payment.status, verified: true, alreadyPaid: true };
+  }
+
+  const result = await this.chapa.verify(txRef);
+
+  const newStatus = result.verified
+    ? PaymentStatus.PAID
+    : PaymentStatus.FAILED;
+
+  await this.prisma.$transaction(async (tx) => {
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: {
+        status: newStatus,
+        paidAt: result.verified ? new Date() : null,
+        gatewayPayload: result.raw as any,
+      },
     });
 
-    if (!payment) throw new NotFoundException('Payment not found');
-
-    // Idempotent — don't double-verify if already PAID
-    if (payment.status === PaymentStatus.PAID) {
-      return { status: payment.status, verified: true, alreadyPaid: true };
-    }
-
-    const result = await this.chapa.verify(txRef);
-
-    const newStatus = result.verified
-      ? PaymentStatus.PAID
-      : PaymentStatus.FAILED;
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.payment.update({
-        where: { id: payment.id },
+    if (result.verified) {
+      await tx.order.update({
+        where: { id: payment.orderId },
         data: {
-          status: newStatus,
-          paidAt: result.verified ? new Date() : null,
-          gatewayPayload: result.raw as any,
+          paymentStatus: PaymentStatus.PAID,
+          paymentMethod: PaymentMethod.CHAPA,
+          paidAt: new Date(),
+          status: OrderStatus.PAID,
         },
       });
 
-      if (result.verified) {
-        await tx.order.update({
-          where: { id: payment.orderId },
-          data: {
-            paymentStatus: PaymentStatus.PAID,
-            paymentMethod: PaymentMethod.CHAPA,
-            paidAt: new Date(),
-            status: OrderStatus.PAID,
-          },
-        });
+      await tx.orderEvent.create({
+        data: {
+          orderId: payment.orderId,
+          status: OrderStatus.PAID,
+          note: `Payment received via Chapa (${txRef})`,
+          isPublic: true,
+        },
+      });
+    }
+  });
 
-        await tx.orderEvent.create({
-          data: {
-            orderId: payment.orderId,
-            status: OrderStatus.PAID,
-            note: `Payment received via Chapa (${txRef})`,
-            isPublic: true,
-          },
-        });
-      }
-    });
-
-    return {
-      status: newStatus,
-      verified: result.verified,
-      amount: result.amount,
-      paymentMethod: result.paymentMethod,
-    };
+  // ══════════════════════════════════════════════════
+  // 🚀 TRIGGER AUTO-ASSIGN (outside transaction)
+  // ══════════════════════════════════════════════════
+  if (result.verified) {
+    try {
+      await this.autoAssign.tryAutoAssign(payment.orderId);
+    } catch (e: any) {
+      // Don't fail the payment if auto-assign has an issue
+      this.logger.error(
+        `Auto-assign failed for order ${payment.orderId}: ${e.message}`,
+      );
+    }
   }
+
+  return {
+    status: newStatus,
+    verified: result.verified,
+    amount: result.amount,
+    paymentMethod: result.paymentMethod,
+  };
+}
 
   // ══════════════════════════════════════════════════
   // WEBHOOK HANDLER

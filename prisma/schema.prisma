@@ -38,6 +38,31 @@ enum AccountType {
   CUSTOMER
 }
 
+// 🆕 NEW
+enum ServiceType {
+  INTRA_CITY
+  INTER_CITY
+  BOTH
+}
+
+// 🆕 NEW
+enum RouteCategory {
+  MICRO          // 0-5 km
+  INTRA_CITY     // 5-15 km
+  SHORT_HAUL     // 15-100 km
+  INTER_CITY     // 100-500 km
+  LONG_HAUL      // > 500 km
+}
+
+// 🆕 NEW
+enum OfferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
 enum PaymentProviderType {
   MOBILE_MONEY
   CARD
@@ -154,13 +179,11 @@ model Staff {
   region Region? @relation(fields: [regionId], references: [id])
   branch Branch? @relation(fields: [branchId], references: [id])
 
-  // Self-relations
   createdBy   Staff?  @relation("StaffCreatedBy", fields: [createdById], references: [id])
   created     Staff[] @relation("StaffCreatedBy")
   suspendedBy Staff?  @relation("StaffSuspendedBy", fields: [suspendedById], references: [id])
   suspended   Staff[] @relation("StaffSuspendedBy")
 
-  // Audit back-relations
   regionsCreated      Region[]          @relation("RegionCreatedBy")
   branchesCreated     Branch[]          @relation("BranchCreatedBy")
   couriersCreated     Courier[]         @relation("CourierCreatedBy")
@@ -175,7 +198,7 @@ model Staff {
 
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
-  deviceTokens  DeviceToken[] // ← MOVE HERE
+  deviceTokens  DeviceToken[]
   notifications Notification[]
 
   @@index([phone])
@@ -212,6 +235,18 @@ model Courier {
   maxVolumeL          Float?
   handlesFragile      Boolean @default(false)
   handlesRefrigerated Boolean @default(false)
+
+  // ═══════════════════════════════════════════
+  // 🆕 SERVICE SCOPE (for auto-assign)
+  // ═══════════════════════════════════════════
+  serviceType        ServiceType @default(INTRA_CITY)
+  serviceRegionIds   String[]    @default([])
+  maxTravelKm        Float?
+  acceptsReturnTrip  Boolean     @default(false)
+  isOnLongTrip       Boolean     @default(false)
+  availableFrom      DateTime?
+
+  // ═══════════════════════════════════════════
 
   nationalIdNumber   String?
   nationalIdImageUrl String?
@@ -251,10 +286,10 @@ model Courier {
   approvedBy Staff? @relation("CourierApprovedBy", fields: [approvedById], references: [id])
   rejectedBy Staff? @relation("CourierRejectedBy", fields: [rejectedById], references: [id])
 
-  // Order & earnings back-relations
-  orders   Order[]
-  earnings CourierEarning[]
-  payouts  Payout[]
+  orders       Order[]
+  earnings     CourierEarning[]
+  payouts      Payout[]
+  offers       OrderOffer[]       // 🆕 NEW
 
   refreshTokens RefreshToken[]
   otpCodes      OtpCode[]
@@ -265,11 +300,13 @@ model Courier {
   @@index([regionId])
   @@index([branchId])
   @@index([status])
+  @@index([serviceType])          // 🆕 NEW
+  @@index([isOnline, lastSeenAt]) // 🆕 NEW (for quick lookups)
   @@map("couriers")
 }
 
 // ══════════════════════════════════════════════════
-// CUSTOMER (sender / receiver)
+// CUSTOMER
 // ══════════════════════════════════════════════════
 
 model Customer {
@@ -283,12 +320,10 @@ model Customer {
   emailVerified Boolean @default(false)
   isActive      Boolean @default(true)
 
-  // Default address (optional)
   defaultAddress String?
   defaultLat     Float?
   defaultLng     Float?
 
-  // Registration source
   registeredById   String?
   registeredByType AccountType?
 
@@ -297,7 +332,6 @@ model Customer {
 
   registeredBy Staff? @relation("CustomerRegisteredBy", fields: [registeredById], references: [id])
 
-  // Order back-relations (as sender / as receiver)
   ordersSent     Order[] @relation("OrderSender")
   ordersReceived Order[] @relation("OrderReceiver")
 
@@ -321,6 +355,15 @@ model Region {
   code        String   @unique
   createdById String?
   createdAt   DateTime @default(now())
+
+  // ═══════════════════════════════════════════
+  // 🆕 GEOGRAPHY (for route detection)
+  // ═══════════════════════════════════════════
+  centerLat      Float?
+  centerLng      Float?
+  isInterCityHub Boolean @default(false)
+
+  // ═══════════════════════════════════════════
 
   createdBy Staff? @relation("RegionCreatedBy", fields: [createdById], references: [id])
 
@@ -356,7 +399,6 @@ model Branch {
   staff     Staff[]
   couriers  Courier[]
 
-  // Order back-relations
   ordersOrigin Order[] @relation("OrderOrigin")
   ordersDest   Order[] @relation("OrderDest")
 
@@ -491,6 +533,23 @@ model Order {
   courierId      String?
   distanceKm     Float?
 
+  // ═══════════════════════════════════════════
+  // 🆕 ROUTE CLASSIFICATION (for auto-assign)
+  // ═══════════════════════════════════════════
+  routeCategory      RouteCategory?
+  pickupCityCode     String?
+  deliveryCityCode   String?
+  routeDistanceKm    Float?
+  estimatedHours     Float?
+
+  // 🆕 AUTO-ASSIGN TRACKING
+  autoAssignAttempts Int       @default(0)
+  lastOfferedAt      DateTime?
+  autoUnassignAt     DateTime?
+  unassignReason     String?
+  requiresReturn     Boolean   @default(false)
+  // ═══════════════════════════════════════════
+
   // ── Package total ──
   totalWeightKg      Float   @default(0)
   totalVolumeL       Float   @default(0)
@@ -533,7 +592,7 @@ model Order {
   lastTrackedAt    DateTime?
   estimatedArrival DateTime?
 
-  // ── Public tracking link ──
+  // ── Public tracking ──
   trackingUrl            String?
   trackingToken          String?   @unique
   trackingTokenSetAt     DateTime?
@@ -562,6 +621,7 @@ model Order {
   events        OrderEvent[]
   receiverLinks ReceiverLink[]
   notifications Notification[]
+  offers        OrderOffer[]         // 🆕 NEW
 
   @@index([trackingNumber])
   @@index([trackingToken])
@@ -569,6 +629,10 @@ model Order {
   @@index([receiverId])
   @@index([courierId])
   @@index([status])
+  @@index([routeCategory])          // 🆕 NEW
+  @@index([pickupCityCode])         // 🆕 NEW
+  @@index([deliveryCityCode])       // 🆕 NEW
+  @@index([status, autoUnassignAt]) // 🆕 NEW (for no-show cron)
   @@map("orders")
 }
 
@@ -602,7 +666,7 @@ model OrderItem {
 }
 
 // ══════════════════════════════════════════════════
-// RECEIVER LINK (one-time secure location fill)
+// RECEIVER LINK
 // ══════════════════════════════════════════════════
 
 model ReceiverLink {
@@ -653,11 +717,11 @@ model Payment {
   orderId        String
   amount         Float
   currency       String        @default("ETB")
-  method         PaymentMethod     // CHAPA, TELEBIRR, CASH, ...
-  party          PaymentParty      // SENDER, RECEIVER, SPLIT
-  gatewayRef     String?           // ← Chapa's tx_ref: DEL-ETH-2026-...
-  gatewayPayload Json?             // ← Full Chapa response JSON
-  status         PaymentStatus     // PENDING → PAID / FAILED / REFUNDED
+  method         PaymentMethod
+  party          PaymentParty
+  gatewayRef     String?
+  gatewayPayload Json?
+  status         PaymentStatus
   paidAt         DateTime?
   refundedAt     DateTime?
   refundAmount   Float?
@@ -672,8 +736,9 @@ model Payment {
 
   @@index([orderId])
   @@index([status])
-  @@map("payments")        // ← DB table name
+  @@map("payments")
 }
+
 // ══════════════════════════════════════════════════
 // COURIER EARNING
 // ══════════════════════════════════════════════════
@@ -739,7 +804,7 @@ model Payout {
 }
 
 // ══════════════════════════════════════════════════
-// ORDER EVENT (audit trail + public tracking feed)
+// ORDER EVENT
 // ══════════════════════════════════════════════════
 
 model OrderEvent {
@@ -753,7 +818,7 @@ model OrderEvent {
   actorType AccountType?
   actorId   String?
   actorName String?
-  isPublic  Boolean      @default(true) // ← shown to sender/receiver
+  isPublic  Boolean      @default(true)
   createdAt DateTime     @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -764,7 +829,34 @@ model OrderEvent {
 }
 
 // ══════════════════════════════════════════════════
-// DEVICE TOKEN (FCM push notifications)
+// ORDER OFFER  🆕 NEW MODEL
+// ══════════════════════════════════════════════════
+
+model OrderOffer {
+  id          String      @id @default(cuid())
+  orderId     String
+  courierId   String
+  status      OfferStatus @default(PENDING)
+  offeredAt   DateTime    @default(now())
+  respondedAt DateTime?
+  expiresAt   DateTime
+  pickupKm    Float?
+  routeKm     Float?
+  attemptNo   Int         @default(1)
+  rejectionReason String?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  courier Courier @relation(fields: [courierId], references: [id], onDelete: Cascade)
+
+  @@unique([orderId, courierId, attemptNo])
+  @@index([courierId, status])
+  @@index([orderId, status])
+  @@index([status, expiresAt])
+  @@map("order_offers")
+}
+
+// ══════════════════════════════════════════════════
+// DEVICE TOKEN
 // ══════════════════════════════════════════════════
 
 model DeviceToken {
@@ -794,7 +886,7 @@ model DeviceToken {
 }
 
 // ══════════════════════════════════════════════════
-// NOTIFICATION (in-app notification history)
+// NOTIFICATION
 // ══════════════════════════════════════════════════
 
 enum NotificationType {
@@ -812,32 +904,32 @@ enum NotificationType {
   WELCOME
   SYSTEM
   MANUAL
+  // 🆕 NEW
+  ORDER_OFFER
+  ORDER_OFFER_EXPIRED
+  ORDER_OFFER_CANCELLED
+  ORDER_MANUAL_ASSIGN_NEEDED
 }
 
 model Notification {
   id   String           @id @default(cuid())
   type NotificationType
 
-  // Recipient
   accountType AccountType
   customerId  String?
   courierId   String?
   staffId     String?
 
-  // Content
   title    String
   body     String
   imageUrl String?
-  data     Json? // { orderId, trackingNumber, status, ... }
+  data     Json?
 
-  // Related entity (optional)
   orderId String?
 
-  // Read state (for in-app inbox)
   isRead Boolean   @default(false)
   readAt DateTime?
 
-  // Delivery status
   pushSent   Boolean   @default(false)
   pushSentAt DateTime?
   pushError  String?
@@ -845,7 +937,6 @@ model Notification {
   createdAt DateTime  @default(now())
   expiresAt DateTime?
 
-  // Relations
   customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
   courier  Courier?  @relation(fields: [courierId], references: [id], onDelete: Cascade)
   staff    Staff?    @relation(fields: [staffId], references: [id], onDelete: Cascade)

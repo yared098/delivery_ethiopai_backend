@@ -21,6 +21,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CourierAppModule } from './courier-app/courier-app.module';
 import { PaymentsModule } from './payments/payments.module';
+import { AutoAssignModule } from './auto-assign/auto-assign.module';
 
 
 @Module({
@@ -44,7 +45,8 @@ import { PaymentsModule } from './payments/payments.module';
     PublicTrackingModule,
     NotificationsModule,
     CourierAppModule,
-    PaymentsModule
+    PaymentsModule,
+    AutoAssignModule
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })

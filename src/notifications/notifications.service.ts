@@ -1,6 +1,5 @@
-
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { Messaging, Message } from 'firebase-admin/messaging';   // ← REPLACED
+import type { Messaging, Message } from 'firebase-admin/messaging';
 import { AccountType, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FIREBASE_MESSAGING } from './firebase.provider';
@@ -32,10 +31,10 @@ export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
   constructor(
-  @Inject(FIREBASE_MESSAGING)
-  private readonly messaging: Messaging,   // ← NOW JUST 'Messaging'
-  private readonly prisma: PrismaService,
-) {}
+    @Inject(FIREBASE_MESSAGING)
+    private readonly messaging: Messaging,
+    private readonly prisma: PrismaService,
+  ) {}
 
   // ══════════════════════════════════════════════════
   // 🔹 LOW-LEVEL: single token
@@ -85,9 +84,7 @@ export class NotificationsService {
       return { success: false, error: 'No tokens' };
     }
 
-    // const messages: admin.messaging.Message[] = tokens.map((t) => ({
     const messages: Message[] = tokens.map((t) => ({
-
       token: t.token,
       notification: {
         title: opts.title,
@@ -163,6 +160,113 @@ export class NotificationsService {
     } catch (err: any) {
       this.logger.error(`unsubscribeFromTopic error: ${err.message}`);
     }
+  }
+
+  // ══════════════════════════════════════════════════
+  // 🆕 AUTO-ASSIGN HELPERS
+  // ══════════════════════════════════════════════════
+
+  /**
+   * Send notification to one courier (used by auto-assign).
+   * Saves to inbox + sends FCM push.
+   */
+  async sendToCourier(
+    courierId: string,
+    payload: { title: string; body: string; data?: any },
+  ) {
+    // Serialize data — FCM requires string values
+    const data: Record<string, string> = {};
+    if (payload.data) {
+      for (const [k, v] of Object.entries(payload.data)) {
+        data[k] = typeof v === 'string' ? v : JSON.stringify(v);
+      }
+    }
+
+    // Save to inbox
+    try {
+      await this.prisma.notification.create({
+        data: {
+          type: 'ORDER_OFFER',
+          accountType: 'COURIER',
+          courierId,
+          title: payload.title,
+          body: payload.body,
+          data: data,
+        },
+      });
+    } catch (e: any) {
+      this.logger.error(`Failed to save notification: ${e.message}`);
+    }
+
+    // Send push via existing method
+    return this.sendToAccount('COURIER', courierId, {
+      title: payload.title,
+      body: payload.body,
+      data,
+    });
+  }
+
+  /**
+   * Broadcast notification to all active staff (used by auto-assign).
+   */
+  async broadcastToStaff(payload: {
+    title: string;
+    body: string;
+    data?: any;
+  }) {
+    const staff = await this.prisma.staff.findMany({
+      where: { isActive: true },
+      select: { id: true },
+    });
+
+    if (staff.length === 0) {
+      return { success: true, sent: 0, failed: 0 };
+    }
+
+    // Serialize data
+    const data: Record<string, string> = {};
+    if (payload.data) {
+      for (const [k, v] of Object.entries(payload.data)) {
+        data[k] = typeof v === 'string' ? v : JSON.stringify(v);
+      }
+    }
+
+    // Save to each staff member's inbox (batch)
+    try {
+      await this.prisma.notification.createMany({
+        data: staff.map((s) => ({
+          type: 'SYSTEM' as const,
+          accountType: 'STAFF' as const,
+          staffId: s.id,
+          title: payload.title,
+          body: payload.body,
+          data,
+        })),
+      });
+    } catch (e: any) {
+      this.logger.error(`Failed to save staff notifications: ${e.message}`);
+    }
+
+    // Push to each staff member (reuses existing sendToAccount)
+    const results = await Promise.allSettled(
+      staff.map((s) =>
+        this.sendToAccount('STAFF', s.id, {
+          title: payload.title,
+          body: payload.body,
+          data,
+        }),
+      ),
+    );
+
+    const sent = results.filter(
+      (r) => r.status === 'fulfilled' && (r.value as any).success,
+    ).length;
+
+    return {
+      success: true,
+      sent,
+      failed: staff.length - sent,
+    };
   }
 
   // ══════════════════════════════════════════════════
