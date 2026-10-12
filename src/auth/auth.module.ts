@@ -5,9 +5,9 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { OtpService } from './otp.service';
 import { TokenService } from './token.service';
-import { JwtStrategy } from './jwt.strategy';
-import { CustomerJwtStrategy } from './customer-jwt.strategy';
-import { CourierJwtStrategy } from './courier-jwt.strategy';
+import { JwtStrategy } from './strategies/jwt.strategy';
+import { CustomerJwtStrategy } from './strategies/customer-jwt.strategy';
+import { CourierJwtStrategy } from './strategies/courier-jwt.strategy';
 import { NotificationsModule } from 'src/notifications/notifications.module';
 
 @Module({

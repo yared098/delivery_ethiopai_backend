@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  Logger,          // ← ADD
   Param,
   Patch,
   Post,
@@ -29,6 +30,8 @@ import { StaffRoles } from '../common/decorators/staff-roles.decorator';
 
 @Controller('notifications')
 export class NotificationsController {
+  private readonly logger = new Logger(NotificationsController.name);   // ← ADD
+
   constructor(
     private readonly notifications: NotificationsService,
     private readonly prisma: PrismaService,
@@ -44,6 +47,10 @@ export class NotificationsController {
   async registerToken(@Body() dto: RegisterDeviceTokenDto, @Req() req: any) {
     const { id, type } = req.user;
 
+    this.logger.log(
+      `📱 register-token: account=${id} type=${dto.accountType} platform=${dto.platform} tokenPrefix=${dto.token.slice(0, 20)}...`,
+    );
+
     const data: any = {
       token: dto.token,
       platform: dto.platform,
@@ -58,13 +65,59 @@ export class NotificationsController {
     if (dto.accountType === 'COURIER') data.courierId = id;
     if (dto.accountType === 'STAFF') data.staffId = id;
 
+    // 1. Upsert the new token
     const saved = await this.prisma.deviceToken.upsert({
       where: { token: dto.token },
       update: data,
       create: data,
     });
 
-    return { ok: true, id: saved.id, platform: saved.platform };
+    this.logger.log(`💾 Token saved (id=${saved.id})`);
+
+    // 2. Deactivate other tokens for this account (keep only this + 1 most-recent)
+    const where: any = {
+      accountType: dto.accountType,
+      isActive: true,
+      NOT: { id: saved.id },
+    };
+    if (dto.accountType === 'CUSTOMER') where.customerId = id;
+    if (dto.accountType === 'COURIER') where.courierId = id;
+    if (dto.accountType === 'STAFF') where.staffId = id;
+
+    const otherTokens = await this.prisma.deviceToken.findMany({
+      where,
+      orderBy: { lastUsedAt: 'desc' },
+    });
+
+    if (otherTokens.length > 1) {
+      const toDeactivate = otherTokens.slice(1).map((t) => t.id);
+      await this.prisma.deviceToken.updateMany({
+        where: { id: { in: toDeactivate } },
+        data: { isActive: false },
+      });
+      this.logger.log(`🧹 Deactivated ${toDeactivate.length} old token(s)`);
+    }
+
+    // 3. Auto-subscribe to role topic
+    const topicMap: Record<string, string> = {
+      CUSTOMER: 'customers',
+      COURIER: 'couriers',
+      STAFF: 'staff',
+    };
+    const topic = topicMap[dto.accountType];
+
+    if (topic) {
+      try {
+        await this.notifications.subscribeToTopic([dto.token], topic);
+        this.logger.log(`🔔 Subscribed ${dto.token.slice(0, 20)}... to "${topic}"`);
+      } catch (e: any) {
+        this.logger.error(`❌ Subscribe failed: ${e.message}`);
+      }
+    } else {
+      this.logger.warn(`⚠️ No topic mapping for accountType=${dto.accountType}`);
+    }
+
+    return { ok: true, id: saved.id, platform: saved.platform, topic };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -83,6 +136,7 @@ export class NotificationsController {
   @HttpCode(200)
   async test(@Req() req: any) {
     const { id, type } = req.user;
+    this.logger.log(`🧪 test notification for ${type} ${id}`);
     return this.notifications.sendToAccount(type, id, {
       title: 'Test Notification 🔔',
       body: 'If you see this, FCM is working perfectly.',
@@ -99,6 +153,9 @@ export class NotificationsController {
   @Post('send')
   @HttpCode(200)
   async sendManual(@Body() dto: SendNotificationDto) {
+    this.logger.log(
+      `📤 send to ${dto.accountType} ${dto.accountId}: "${dto.title}"`,
+    );
     return this.notifications.sendToAccount(dto.accountType, dto.accountId, {
       title: dto.title,
       body: dto.body,
@@ -115,6 +172,11 @@ export class NotificationsController {
     if (!dto.topic) {
       return { success: false, error: 'Topic is required for broadcast' };
     }
+
+    this.logger.log(
+      `📢 broadcast to topic="${dto.topic}" title="${dto.title}"`,
+    );
+
     return this.notifications.sendToTopic(dto.topic, {
       title: dto.title,
       body: dto.body,
@@ -125,10 +187,6 @@ export class NotificationsController {
   // 🛡️ STAFF-ONLY: admin list + stats
   // ══════════════════════════════════════════════════
 
-  /**
-   * GET /api/v1/notifications/admin/list
-   * List ALL notifications with filters + pagination.
-   */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
   @Get('admin/list')
@@ -182,9 +240,6 @@ export class NotificationsController {
     };
   }
 
-  /**
-   * GET /api/v1/notifications/admin/stats
-   */
   @UseGuards(JwtAuthGuard, RolesGuard)
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN)
   @Get('admin/stats')
@@ -211,10 +266,6 @@ export class NotificationsController {
   // 🔔 USER-FACING INBOX (for apps)
   // ══════════════════════════════════════════════════
 
-  /**
-   * GET /api/v1/notifications
-   * List current account's notifications.
-   */
   @UseGuards(JwtAuthGuard)
   @Get()
   async listMine(
@@ -236,9 +287,6 @@ export class NotificationsController {
     });
   }
 
-  /**
-   * GET /api/v1/notifications/unread-count
-   */
   @UseGuards(JwtAuthGuard)
   @Get('unread-count')
   async unreadCount(@Req() req: any) {
@@ -252,9 +300,73 @@ export class NotificationsController {
     return { count };
   }
 
-  /**
-   * PATCH /api/v1/notifications/:id/read
-   */
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+@StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+@Get('admin/search-accounts')
+async searchAccounts(
+  @Query('type') type: AccountType,
+  @Query('q') q?: string,
+  @Query('limit') limit = '20',
+) {
+  const l = Math.min(50, Math.max(1, Number(limit)));
+  const query = (q || '').trim();
+
+  const where: any = {};
+  if (query) {
+    where.OR = [
+      { phone: { contains: query, mode: 'insensitive' } },
+      { name: { contains: query, mode: 'insensitive' } },
+    ];
+  }
+
+  if (type === 'CUSTOMER') {
+    return this.prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+      },
+      take: l,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  if (type === 'COURIER') {
+    return this.prisma.courier.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        regionId: true,
+        branchId: true,
+      },
+      take: l,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  if (type === 'STAFF') {
+    return this.prisma.staff.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        email: true,
+        role: true,
+      },
+      take: l,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  return [];
+}
   @UseGuards(JwtAuthGuard)
   @Patch(':id/read')
   async markRead(@Param('id') id: string, @Req() req: any) {
@@ -270,9 +382,6 @@ export class NotificationsController {
     });
   }
 
-  /**
-   * PATCH /api/v1/notifications/read-all
-   */
   @UseGuards(JwtAuthGuard)
   @Patch('read-all')
   async markAllRead(@Req() req: any) {
@@ -288,54 +397,65 @@ export class NotificationsController {
     });
   }
 
+  // ══════════════════════════════════════════════════
+  // 📌 TOPIC SUBSCRIPTION (manual)
+  // ══════════════════════════════════════════════════
+
   @UseGuards(JwtAuthGuard)
-@Post('subscribe-topic')
-@HttpCode(200)
-async subscribeTopic(
-  @Body() body: { topic: string },
-  @Req() req: any,
-) {
-  const { id, type } = req.user;
+  @Post('subscribe-topic')
+  @HttpCode(200)
+  async subscribeTopic(
+    @Body() body: { topic: string },
+    @Req() req: any,
+  ) {
+    const { id, type } = req.user;
 
-  // Get all active tokens for this account
-  const where: any = { accountType: type, isActive: true };
-  if (type === 'CUSTOMER') where.customerId = id;
-  if (type === 'COURIER') where.courierId = id;
-  if (type === 'STAFF') where.staffId = id;
+    const where: any = { accountType: type, isActive: true };
+    if (type === 'CUSTOMER') where.customerId = id;
+    if (type === 'COURIER') where.courierId = id;
+    if (type === 'STAFF') where.staffId = id;
 
-  const tokens = await this.prisma.deviceToken.findMany({ where });
-  const tokenStrings = tokens.map((t) => t.token);
+    const tokens = await this.prisma.deviceToken.findMany({ where });
+    const tokenStrings = tokens.map((t) => t.token);
 
-  if (!tokenStrings.length) {
-    return { ok: false, error: 'No active tokens' };
+    if (!tokenStrings.length) {
+      return { ok: false, error: 'No active tokens' };
+    }
+
+    await this.notifications.subscribeToTopic(tokenStrings, body.topic);
+    this.logger.log(
+      `🔔 manually subscribed ${tokenStrings.length} token(s) to "${body.topic}"`,
+    );
+
+    return { ok: true, subscribed: tokenStrings.length, topic: body.topic };
   }
 
-  await this.notifications.subscribeToTopic(tokenStrings, body.topic);
-  return { ok: true, subscribed: tokenStrings.length, topic: body.topic };
-}
+  @UseGuards(JwtAuthGuard)
+  @Post('unsubscribe-topic')
+  @HttpCode(200)
+  async unsubscribeTopic(
+    @Body() body: { topic: string },
+    @Req() req: any,
+  ) {
+    const { id, type } = req.user;
 
-@UseGuards(JwtAuthGuard)
-@Post('unsubscribe-topic')
-@HttpCode(200)
-async unsubscribeTopic(
-  @Body() body: { topic: string },
-  @Req() req: any,
-) {
-  const { id, type } = req.user;
+    const where: any = { accountType: type, isActive: true };
+    if (type === 'CUSTOMER') where.customerId = id;
+    if (type === 'COURIER') where.courierId = id;
+    if (type === 'STAFF') where.staffId = id;
 
-  const where: any = { accountType: type, isActive: true };
-  if (type === 'CUSTOMER') where.customerId = id;
-  if (type === 'COURIER') where.courierId = id;
-  if (type === 'STAFF') where.staffId = id;
+    const tokens = await this.prisma.deviceToken.findMany({ where });
+    const tokenStrings = tokens.map((t) => t.token);
 
-  const tokens = await this.prisma.deviceToken.findMany({ where });
-  const tokenStrings = tokens.map((t) => t.token);
+    if (!tokenStrings.length) {
+      return { ok: false, error: 'No active tokens' };
+    }
 
-  if (!tokenStrings.length) {
-    return { ok: false, error: 'No active tokens' };
+    await this.notifications.unsubscribeFromTopic(tokenStrings, body.topic);
+    this.logger.log(
+      `🔕 manually unsubscribed ${tokenStrings.length} token(s) from "${body.topic}"`,
+    );
+
+    return { ok: true, unsubscribed: tokenStrings.length, topic: body.topic };
   }
-
-  await this.notifications.unsubscribeFromTopic(tokenStrings, body.topic);
-  return { ok: true, unsubscribed: tokenStrings.length, topic: body.topic };
-}
 }
