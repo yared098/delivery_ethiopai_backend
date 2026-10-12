@@ -10,21 +10,36 @@ import { ReceiverLinksService } from './receiver-links.service';
 import { ReceiverLinkController } from '../receiver-links/receiver-link.controller';
 import { TrackingModule } from '../tracking/tracking.module';
 import { QrModule } from '../qr/qr.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { BranchResolverService } from './branch-resolver.service';
 
 @Module({
   imports: [
-    TrackingModule, QrModule,
+    // ⚠️ ONLY modules go here — no services, no controllers
+    TrackingModule,
+    QrModule,
     PrismaModule,
     AuthModule,
     AfroMessageModule,
+    NotificationsModule,
   ],
-  controllers: [OrdersController, ReceiverLinkController],
+  controllers: [
+    OrdersController,
+    ReceiverLinkController,
+  ],
   providers: [
+    // ⚠️ Services and providers go here
     OrdersService,
     PricingService,
     TrackingNumberService,
     ReceiverLinksService,
+    BranchResolverService,   // ✅ HERE — not in imports
   ],
-  exports: [OrdersService, PricingService, ReceiverLinksService],
+  exports: [
+    OrdersService,
+    PricingService,
+    ReceiverLinksService,
+    BranchResolverService,
+  ],
 })
 export class OrdersModule {}

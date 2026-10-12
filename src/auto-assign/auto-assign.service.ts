@@ -17,7 +17,7 @@ import {
 } from './route-utils';
 import { Order, Courier } from '@prisma/client';
 
-const STALE_LOCATION_MIN = 5;
+const STALE_LOCATION_MIN = 50;
 const NO_SHOW_MINUTES = 15;
 
 @Injectable()
@@ -128,12 +128,170 @@ export class AutoAssignService {
   /**
    * Find eligible couriers using route + courier service fields.
    */
+//   private async findCandidates(order: Order, route: RouteInfo) {
+//     if (!route.originRegionId) return [];
+
+//     const staleCutoff = new Date(Date.now() - STALE_LOCATION_MIN * 60_000);
+
+//     // Base filter (works for both intra + inter)
+//     const baseFilter: any = {
+//       isOnline: true,
+//       isActive: true,
+//       status: 'APPROVED',
+//       vehicleType: { in: route.eligibleVehicles },
+//       currentLat: { not: null },
+//       currentLng: { not: null },
+//       lastSeenAt: { gte: staleCutoff },
+//       isOnLongTrip: false,
+//     };
+
+//     if (order.totalWeightKg > 0) {
+//       baseFilter.OR = [
+//         { maxWeightKg: null },
+//         { maxWeightKg: { gte: order.totalWeightKg } },
+//       ];
+//     }
+//     if (order.isFragile) baseFilter.handlesFragile = true;
+//     if (order.isRefrigerated) baseFilter.handlesRefrigerated = true;
+
+//     // Route-specific region filter
+//     let regionFilter: any;
+
+//     if (route.type === 'INTRA_REGION') {
+//       // Same region only
+//       regionFilter = { regionId: route.originRegionId };
+//     } else {
+//       // Inter-region: home region OR declared service regions must include origin
+//       // AND destination must be in their service list
+//       regionFilter = {
+//         AND: [
+//           {
+//             OR: [
+//               { regionId: route.originRegionId },
+//               { serviceRegionIds: { has: route.originRegionId } },
+//             ],
+//           },
+//           {
+//             OR: [
+//               { regionId: route.deliveryRegionId! },
+//               { serviceRegionIds: { has: route.deliveryRegionId! } },
+//             ],
+//           },
+//         ],
+//       };
+//     }
+
+//     const couriers = await this.prisma.courier.findMany({
+//       where: { ...baseFilter, ...regionFilter },
+//       select: {
+//         id: true,
+//         name: true,
+//         phone: true,
+//         currentLat: true,
+//         currentLng: true,
+//         rating: true,
+//         totalDeliveries: true,
+//         maxWeightKg: true,
+//         vehicleType: true,
+//         acceptsReturnTrip: true,
+//       },
+//     });
+
+//     if (couriers.length === 0) return [];
+
+//     // Exclude overloaded
+//     const courierIds = couriers.map((c) => c.id);
+//     const activeCounts = await this.prisma.order.groupBy({
+//       by: ['courierId'],
+//       where: {
+//         courierId: { in: courierIds },
+//         status: {
+//           in: ['ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY'],
+//         },
+//       },
+//       _count: true,
+//     });
+//     const activeMap = new Map(
+//       activeCounts.map((r) => [r.courierId, r._count]),
+//     );
+
+//     const maxConcurrent = getMaxConcurrent(route.category);
+
+//     // Filter by load + already-offered
+//     let filtered = couriers.filter(
+//       (c) => (activeMap.get(c.id) ?? 0) < maxConcurrent,
+//     );
+
+//     const offeredIds = await this.offerStore.getOfferedCouriers(order.id);
+//     filtered = filtered.filter((c) => !offeredIds.includes(c.id));
+
+//     if (filtered.length === 0) return [];
+
+//     // Score & rank
+//     // const pickupLat = order.senderLat ?? order.originBranch?.lat ?? 0;
+//     // const pickupLng = order.senderLng ?? order.originBranch?.lng ?? 0;
+//     const pickupLat = order.senderLat ?? 0;
+//     const pickupLng = order.senderLng ?? 0;
+
+//     return filtered
+//       .map((c) => {
+//         const pickupDistanceKm = haversine(
+//           pickupLat,
+//           pickupLng,
+//           c.currentLat!,
+//           c.currentLng!,
+//         );
+
+//         // Lighter distance weight for inter-region (they'll drive far anyway)
+//         const distanceWeight = route.type === 'INTRA_REGION' ? 1.0 : 0.3;
+
+//         let score = pickupDistanceKm * distanceWeight * 10;
+//         score += (5 - c.rating) * 5;
+
+//         // Inter-region experience bonus
+//         if (route.type === 'INTER_REGION' && c.totalDeliveries > 50) {
+//           score -= 5;
+//         }
+
+//         // Return-trip bonus
+//         if (order.requiresReturn && c.acceptsReturnTrip) {
+//           score -= 10;
+//         }
+
+//         // Near capacity penalty
+//         if (c.maxWeightKg && order.totalWeightKg > c.maxWeightKg * 0.8) {
+//           score += 15;
+//         }
+
+//         return { ...c, pickupDistanceKm, score };
+//       })
+//       .sort((a, b) => a.score - b.score);
+//   }
+
   private async findCandidates(order: Order, route: RouteInfo) {
-    if (!route.originRegionId) return [];
+    this.logger.debug(
+      `🔍 findCandidates for order ${order.trackingNumber}: ` +
+      `routeType=${route.type}, originRegion=${route.originRegionId}, ` +
+      `deliveryRegion=${route.deliveryRegionId}, distance=${route.distanceKm}km, ` +
+      `vehicles=[${route.eligibleVehicles.join(',')}]`,
+    );
+
+    // ══════════════════════════════════════════════════
+    // GUARD 1 — Region must exist
+    // ══════════════════════════════════════════════════
+    if (!route.originRegionId) {
+      this.logger.warn(
+        `❌ Order ${order.trackingNumber} has NO originRegionId — ` +
+        `check originBranchId on the order`,
+      );
+      return [];
+    }
 
     const staleCutoff = new Date(Date.now() - STALE_LOCATION_MIN * 60_000);
 
-    // Base filter (works for both intra + inter)
+    // ══════════════════════════════════════════════════
+    // Build base filter
+    // ══════════════════════════════════════════════════
     const baseFilter: any = {
       isOnline: true,
       isActive: true,
@@ -154,15 +312,13 @@ export class AutoAssignService {
     if (order.isFragile) baseFilter.handlesFragile = true;
     if (order.isRefrigerated) baseFilter.handlesRefrigerated = true;
 
-    // Route-specific region filter
+    // ══════════════════════════════════════════════════
+    // Region filter
+    // ══════════════════════════════════════════════════
     let regionFilter: any;
-
     if (route.type === 'INTRA_REGION') {
-      // Same region only
       regionFilter = { regionId: route.originRegionId };
-    } else {
-      // Inter-region: home region OR declared service regions must include origin
-      // AND destination must be in their service list
+    } else if (route.type === 'INTER_REGION') {
       regionFilter = {
         AND: [
           {
@@ -179,8 +335,17 @@ export class AutoAssignService {
           },
         ],
       };
+    } else {
+      this.logger.warn(
+        `❌ Order ${order.trackingNumber} route.type=${route.type} — ` +
+        `cannot match couriers`,
+      );
+      return [];
     }
 
+    // ══════════════════════════════════════════════════
+    // Fetch candidates
+    // ══════════════════════════════════════════════════
     const couriers = await this.prisma.courier.findMany({
       where: { ...baseFilter, ...regionFilter },
       select: {
@@ -197,10 +362,49 @@ export class AutoAssignService {
       },
     });
 
-    if (couriers.length === 0) return [];
+    this.logger.debug(
+      `🔍 Base filter matched ${couriers.length} courier(s)`,
+    );
 
-    // Exclude overloaded
+    if (couriers.length === 0) {
+      // Debug: count how many fail each condition
+      const totalApproved = await this.prisma.courier.count({
+        where: { status: 'APPROVED' },
+      });
+      const online = await this.prisma.courier.count({
+        where: { status: 'APPROVED', isOnline: true },
+      });
+      const withGps = await this.prisma.courier.count({
+        where: {
+          status: 'APPROVED',
+          isOnline: true,
+          currentLat: { not: null },
+          currentLng: { not: null },
+        },
+      });
+      const freshGps = await this.prisma.courier.count({
+        where: {
+          status: 'APPROVED',
+          isOnline: true,
+          currentLat: { not: null },
+          currentLng: { not: null },
+          lastSeenAt: { gte: staleCutoff },
+        },
+      });
+
+      this.logger.warn(
+        `⚠️ No couriers matched. Funnel: ` +
+        `approved=${totalApproved} → online=${online} → ` +
+        `withGps=${withGps} → freshGps=${freshGps}`,
+      );
+      return [];
+    }
+
     const courierIds = couriers.map((c) => c.id);
+
+    // ══════════════════════════════════════════════════
+    // Exclude overloaded
+    // ══════════════════════════════════════════════════
     const activeCounts = await this.prisma.order.groupBy({
       by: ['courierId'],
       where: {
@@ -216,8 +420,11 @@ export class AutoAssignService {
     );
 
     const maxConcurrent = getMaxConcurrent(route.category);
+    this.logger.debug(
+      `🔍 maxConcurrent=${maxConcurrent}, ` +
+      `busy couriers=${activeMap.size}`,
+    );
 
-    // Filter by load + already-offered
     let filtered = couriers.filter(
       (c) => (activeMap.get(c.id) ?? 0) < maxConcurrent,
     );
@@ -225,11 +432,21 @@ export class AutoAssignService {
     const offeredIds = await this.offerStore.getOfferedCouriers(order.id);
     filtered = filtered.filter((c) => !offeredIds.includes(c.id));
 
-    if (filtered.length === 0) return [];
+    this.logger.debug(
+      `🔍 After load+offered filter: ${filtered.length} courier(s)`,
+    );
 
+    if (filtered.length === 0) {
+      this.logger.warn(
+        `⚠️ All candidates busy or already offered. ` +
+        `Busy: ${activeMap.size}, Offered: ${offeredIds.length}`,
+      );
+      return [];
+    }
+
+    // ══════════════════════════════════════════════════
     // Score & rank
-    // const pickupLat = order.senderLat ?? order.originBranch?.lat ?? 0;
-    // const pickupLng = order.senderLng ?? order.originBranch?.lng ?? 0;
+    // ══════════════════════════════════════════════════
     const pickupLat = order.senderLat ?? 0;
     const pickupLng = order.senderLng ?? 0;
 
@@ -241,33 +458,16 @@ export class AutoAssignService {
           c.currentLat!,
           c.currentLng!,
         );
-
-        // Lighter distance weight for inter-region (they'll drive far anyway)
         const distanceWeight = route.type === 'INTRA_REGION' ? 1.0 : 0.3;
-
         let score = pickupDistanceKm * distanceWeight * 10;
         score += (5 - c.rating) * 5;
-
-        // Inter-region experience bonus
-        if (route.type === 'INTER_REGION' && c.totalDeliveries > 50) {
-          score -= 5;
-        }
-
-        // Return-trip bonus
-        if (order.requiresReturn && c.acceptsReturnTrip) {
-          score -= 10;
-        }
-
-        // Near capacity penalty
-        if (c.maxWeightKg && order.totalWeightKg > c.maxWeightKg * 0.8) {
-          score += 15;
-        }
-
+        if (route.type === 'INTER_REGION' && c.totalDeliveries > 50) score -= 5;
+        if (order.requiresReturn && c.acceptsReturnTrip) score -= 10;
+        if (c.maxWeightKg && order.totalWeightKg > c.maxWeightKg * 0.8) score += 15;
         return { ...c, pickupDistanceKm, score };
       })
       .sort((a, b) => a.score - b.score);
   }
-
   /**
    * Send WebSocket + push notification to courier.
    */
@@ -414,21 +614,22 @@ pickupLng: order.senderLng,
    * Timeout handler.
    */
   private async handleOfferTimeout(orderId: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
-    if (!order || order.courierId) return;
-    if (order.status !== 'PAID') return;
+  const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || order.courierId) return;
+  if (order.status !== 'PAID') return;
 
-    this.logger.log(`Offer timeout for ${order.trackingNumber}`);
+  this.logger.log(`Offer timeout for ${order.trackingNumber}`);
 
-    await this.prisma.orderOffer.updateMany({
-      where: { orderId, status: 'PENDING' },
-      data: { status: 'EXPIRED', respondedAt: new Date() },
-    });
+  await this.prisma.orderOffer.updateMany({
+    where: { orderId, status: 'PENDING' },
+    data: { status: 'EXPIRED', respondedAt: new Date() },
+  });
 
-    await this.tryAutoAssign(orderId);
-  }
+  // ⚠️ CRITICAL: Clear the offered couriers so retry can re-offer
+  await this.offerStore.clearOffers(orderId);
+
+  await this.tryAutoAssign(orderId);
+}
 
   /**
    * Escalate to admin when auto-assign fails.

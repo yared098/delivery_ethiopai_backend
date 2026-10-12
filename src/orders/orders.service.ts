@@ -23,6 +23,7 @@ import {
   PaymentParty,
   StaffRole,
 } from '@prisma/client';
+import { BranchResolverService } from './branch-resolver.service';
 
 @Injectable()
 export class OrdersService {
@@ -32,9 +33,10 @@ export class OrdersService {
     private pricing: PricingService,
     private receiverLinks: ReceiverLinksService,
     private trackingWs: TrackingGateway,
-    private qr: QrService,                    // ← NEW
-    private sms: AfroMessageService,          // ← NEW
-    private notifications: NotificationsService, 
+    private qr: QrService,
+    private sms: AfroMessageService,
+    private notifications: NotificationsService,
+    private branchResolver: BranchResolverService,
   ) {}
 
   private normalizePhone(phone: string): string {
@@ -115,6 +117,25 @@ export class OrdersService {
     const courierEarning = this.pricing.courierEarning(deliveryFee);
     const platformFee = this.pricing.platformFee(deliveryFee);
 
+    // ══════════════════════════════════════════════════
+    // 🆕 AUTO-RESOLVE BRANCHES FROM LOCATION
+    // ══════════════════════════════════════════════════
+    const resolved = await this.branchResolver.resolveForOrder({
+      originBranchId: dto.originBranchId,
+      destBranchId: dto.destBranchId,
+      senderLat: dto.sender.lat,
+      senderLng: dto.sender.lng,
+      receiverLat: dto.receiver.lat,
+      receiverLng: dto.receiver.lng,
+    });
+
+    console.log('📍 Resolved branches:', {
+      origin: resolved.originBranch?.name ?? 'none',
+      originKm: resolved.originBranch?.distanceKm,
+      dest: resolved.destBranch?.name ?? 'none',
+      destKm: resolved.destBranch?.distanceKm,
+    });
+
     const trackingNumber = await this.tracking.generate();
     const trackingToken = this.tracking.generateTrackingToken();
 
@@ -156,8 +177,9 @@ export class OrdersService {
           receiverLng: dto.receiver.lng,
           receiverLocationSource: receiverComplete ? 'manual' : null,
 
-          originBranchId: dto.originBranchId,
-          destBranchId: dto.destBranchId,
+          // 🆕 USE RESOLVED VALUES
+          originBranchId: resolved.originBranchId,
+          destBranchId: resolved.destBranchId,
           distanceKm,
 
           totalWeightKg,
@@ -199,6 +221,7 @@ export class OrdersService {
           sender: { select: { id: true, name: true, phone: true } },
           receiver: { select: { id: true, name: true, phone: true } },
           originBranch: { select: { id: true, name: true, code: true } },
+          destBranch: { select: { id: true, name: true, code: true } },
           createdBy: { select: { id: true, name: true } },
         },
       });
@@ -233,8 +256,6 @@ export class OrdersService {
     }
 
     // 2. Generate public tracking token + URL
-    //    NOTE: order already has trackingToken/trackingUrl from creation.
-    //    Only regenerate if QrService is authoritative. Using existing to avoid duplication.
     let trackingUrl: string | null = (order as any).trackingUrl ?? null;
     if (!trackingUrl) {
       try {
@@ -255,7 +276,6 @@ export class OrdersService {
           currentUser.id,
         );
 
-        // Send SMS with receiver link
         await this.sms.sendReceiverLink(
           receiverPhone,
           dto.sender.name,
@@ -367,7 +387,6 @@ export class OrdersService {
         }
       }
     }
-    
 
     // ══════════════════════════════════════════════════
     // 5d — Refresh order to include all new fields
@@ -379,6 +398,7 @@ export class OrdersService {
         sender: { select: { id: true, name: true, phone: true } },
         receiver: { select: { id: true, name: true, phone: true } },
         originBranch: { select: { id: true, name: true, code: true } },
+        destBranch: { select: { id: true, name: true, code: true } },
         courier: { select: { id: true, name: true, phone: true } },
         createdBy: { select: { id: true, name: true } },
       },
@@ -487,7 +507,6 @@ export class OrdersService {
 
     return order;
   }
-  
 
   // ══════════════════════════════════════════════════
   // UPDATE
@@ -606,7 +625,7 @@ export class OrdersService {
   }
 
   // ══════════════════════════════════════════════════
-  // AUTO-ASSIGN COURIER
+  // AUTO-ASSIGN COURIER (admin manual trigger)
   // ══════════════════════════════════════════════════
   async autoAssignCourier(orderId: string, currentUser: any) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
@@ -909,12 +928,10 @@ export class OrdersService {
     });
     if (!order) throw new NotFoundException('Order not found');
 
-    // Only SUPER_ADMIN may hard-delete
     if (currentUser.role !== StaffRole.SUPER_ADMIN) {
       throw new ForbiddenException('Only SUPER_ADMIN can delete orders');
     }
 
-    // Block deletion of orders already in motion
     const BLOCKED: OrderStatus[] = [
       OrderStatus.PICKED_UP,
       OrderStatus.IN_TRANSIT,
@@ -927,7 +944,6 @@ export class OrdersService {
       );
     }
 
-    // Cascade delete in a transaction
     await this.prisma.$transaction(async (tx) => {
       await tx.orderEvent.deleteMany({ where: { orderId: id } });
       await tx.receiverLink.deleteMany({ where: { orderId: id } });
@@ -936,7 +952,6 @@ export class OrdersService {
       await tx.order.delete({ where: { id } });
     });
 
-    // Notify live subscribers
     this.trackingWs.broadcastOrderEnd(id, {
       outcome: 'CANCELLED',
       message: 'Order was deleted',
@@ -944,5 +959,4 @@ export class OrdersService {
 
     return { message: 'Order deleted', id };
   }
-
 }
