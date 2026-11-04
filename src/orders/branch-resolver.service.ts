@@ -25,6 +25,7 @@ export class BranchResolverService {
   async findNearestBranch(
     lat: number | null | undefined,
     lng: number | null | undefined,
+    regionId?: string,
   ): Promise<ResolvedBranch | null> {
     if (lat == null || lng == null) return null;
     if (lat === 0 && lng === 0) return null;
@@ -62,6 +63,7 @@ export class BranchResolverService {
         WHERE b.lat IS NOT NULL
           AND b.lng IS NOT NULL
           AND b."isActive" = true
+          AND (${regionId ?? null}::text IS NULL OR b."regionId" = ${regionId ?? null})
         ORDER BY distance_km ASC
         LIMIT 1
       `;
@@ -88,6 +90,25 @@ export class BranchResolverService {
       this.logger.error(`findNearestBranch failed: ${e.message}`);
       return null;
     }
+  }
+
+  async findFirstActiveBranchInRegion(
+    regionId: string,
+  ): Promise<ResolvedBranch | null> {
+    const branch = await this.prisma.branch.findFirst({
+      where: { regionId, isActive: true },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        regionId: true,
+        name: true,
+        code: true,
+        city: true,
+      },
+    });
+
+    if (!branch) return null;
+    return { ...branch, distanceKm: 0 };
   }
 
   /**

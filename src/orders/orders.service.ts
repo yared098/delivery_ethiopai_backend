@@ -172,11 +172,40 @@ export class OrdersService {
     // ══════════════════════════════════════════════════
     // 🆕 AUTO-RESOLVE BRANCHES FROM LOCATION
     // ══════════════════════════════════════════════════
+    let originBranchId = dto.originBranchId;
+    if (currentUser.role === StaffRole.BRANCH_MANAGER) {
+      originBranchId = currentUser.branchId;
+    } else if (
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      !originBranchId
+    ) {
+      if (!currentUser.regionId) {
+        throw new BadRequestException(
+          'Regional Admin must be assigned to a region before creating orders',
+        );
+      }
+
+      const nearestRegionalBranch = await this.branchResolver.findNearestBranch(
+        dto.sender.lat,
+        dto.sender.lng,
+        currentUser.regionId,
+      );
+      const regionalBranch =
+        nearestRegionalBranch ??
+        (await this.branchResolver.findFirstActiveBranchInRegion(
+          currentUser.regionId,
+        ));
+
+      if (!regionalBranch) {
+        throw new BadRequestException(
+          'No active branch is configured in your region',
+        );
+      }
+      originBranchId = regionalBranch.id;
+    }
+
     const resolved = await this.branchResolver.resolveForOrder({
-      originBranchId:
-        currentUser.role === StaffRole.BRANCH_MANAGER
-          ? currentUser.branchId
-          : dto.originBranchId,
+      originBranchId,
       destBranchId: dto.destBranchId,
       senderLat: dto.sender.lat,
       senderLng: dto.sender.lng,
