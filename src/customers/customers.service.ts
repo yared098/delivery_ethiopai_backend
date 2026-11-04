@@ -3,12 +3,13 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { ListCustomersQueryDto } from './dto/list-customers-query.dto';
-import { AccountType } from '@prisma/client';
+import { AccountType, Prisma, StaffRole } from '@prisma/client';
 
 @Injectable()
 export class CustomersService {
@@ -53,8 +54,24 @@ export class CustomersService {
     });
   }
 
-  async findAll(query: ListCustomersQueryDto) {
-    const where: any = {};
+  private regionScope(currentUser: {
+    role: StaffRole;
+    regionId?: string | null;
+  }): Prisma.CustomerWhereInput {
+    if (currentUser.role === StaffRole.SUPER_ADMIN) return {};
+    if (!currentUser.regionId) {
+      throw new ForbiddenException('Your staff account is not assigned to a region');
+    }
+
+    return {
+      registeredBy: {
+        is: { regionId: currentUser.regionId },
+      },
+    };
+  }
+
+  async findAll(query: ListCustomersQueryDto, currentUser: any) {
+    const where: Prisma.CustomerWhereInput = this.regionScope(currentUser);
 
     if (query.isActive !== undefined) where.isActive = query.isActive;
 
@@ -90,9 +107,9 @@ export class CustomersService {
     };
   }
 
-  async findOne(id: string) {
-    const customer = await this.prisma.customer.findUnique({
-      where: { id },
+  async findOne(id: string, currentUser: any) {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, ...this.regionScope(currentUser) },
       select: {
         ...this.publicSelect(),
         _count: {
@@ -108,17 +125,19 @@ export class CustomersService {
     return customer;
   }
 
-  async findByPhone(phone: string) {
+  async findByPhone(phone: string, currentUser: any) {
     const normalized = this.normalizePhone(phone);
-    const customer = await this.prisma.customer.findUnique({
-      where: { phone: normalized },
+    const customer = await this.prisma.customer.findFirst({
+      where: { phone: normalized, ...this.regionScope(currentUser) },
       select: this.publicSelect(),
     });
     return customer; // may be null — for order form lookup
   }
 
   async update(id: string, dto: UpdateCustomerDto, currentUser: any) {
-    const existing = await this.prisma.customer.findUnique({ where: { id } });
+    const existing = await this.prisma.customer.findFirst({
+      where: { id, ...this.regionScope(currentUser) },
+    });
     if (!existing) throw new NotFoundException('Customer not found');
 
     const data: any = {};
@@ -153,7 +172,9 @@ export class CustomersService {
   }
 
   async suspend(id: string, currentUser: any) {
-    const existing = await this.prisma.customer.findUnique({ where: { id } });
+    const existing = await this.prisma.customer.findFirst({
+      where: { id, ...this.regionScope(currentUser) },
+    });
     if (!existing) throw new NotFoundException('Customer not found');
 
     await this.prisma.customer.update({
@@ -170,7 +191,9 @@ export class CustomersService {
   }
 
   async reactivate(id: string, currentUser: any) {
-    const existing = await this.prisma.customer.findUnique({ where: { id } });
+    const existing = await this.prisma.customer.findFirst({
+      where: { id, ...this.regionScope(currentUser) },
+    });
     if (!existing) throw new NotFoundException('Customer not found');
 
     await this.prisma.customer.update({
@@ -182,8 +205,8 @@ export class CustomersService {
   }
 
   async remove(id: string, currentUser: any) {
-    const customer = await this.prisma.customer.findUnique({
-      where: { id },
+    const customer = await this.prisma.customer.findFirst({
+      where: { id, ...this.regionScope(currentUser) },
       include: {
         _count: { select: { ordersSent: true, ordersReceived: true } },
       },

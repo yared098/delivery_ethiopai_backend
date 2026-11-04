@@ -32,20 +32,20 @@ export class CustomersController {
 
   @Get()
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
-  findAll(@Query() query: ListCustomersQueryDto) {
-    return this.customers.findAll(query);
+  findAll(@Query() query: ListCustomersQueryDto, @CurrentUser() user: any) {
+    return this.customers.findAll(query, user);
   }
 
   @Get('lookup')
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
-  lookup(@Query('phone') phone: string) {
-    return this.customers.findByPhone(phone);
+  lookup(@Query('phone') phone: string, @CurrentUser() user: any) {
+    return this.customers.findByPhone(phone, user);
   }
 
   @Get(':id')
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
-  findOne(@Param('id') id: string) {
-    return this.customers.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.customers.findOne(id, user);
   }
 
   @Patch(':id')
