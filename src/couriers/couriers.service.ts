@@ -17,6 +17,34 @@ import { AccountType, CourierStatus, StaffRole } from '@prisma/client';
 export class CouriersService {
   constructor(private prisma: PrismaService) {}
 
+  private courierScope(currentUser: any) {
+    if (currentUser.role === StaffRole.REGIONAL_ADMIN && currentUser.regionId) {
+      return { regionId: currentUser.regionId };
+    }
+
+    if (currentUser.role === StaffRole.BRANCH_MANAGER && currentUser.branchId) {
+      return { branchId: currentUser.branchId };
+    }
+
+    return currentUser.role === StaffRole.SUPER_ADMIN ? {} : { id: '__no_access__' };
+  }
+
+  private assertCourierScope(courier: any, currentUser: any) {
+    if (
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      courier.regionId !== currentUser.regionId
+    ) {
+      throw new ForbiddenException('You can only manage couriers in your region');
+    }
+
+    if (
+      currentUser.role === StaffRole.BRANCH_MANAGER &&
+      courier.branchId !== currentUser.branchId
+    ) {
+      throw new ForbiddenException('You can only manage couriers in your branch');
+    }
+  }
+
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('251') && digits.length === 12) return digits;
@@ -36,6 +64,13 @@ export class CouriersService {
       dto.regionId !== currentUser.regionId
     ) {
       throw new ForbiddenException('You can only create couriers in your region');
+    }
+    if (
+      currentUser.role === StaffRole.BRANCH_MANAGER &&
+      (dto.branchId !== currentUser.branchId ||
+        dto.regionId !== currentUser.regionId)
+    ) {
+      throw new ForbiddenException('You can only create couriers in your branch');
     }
 
     const region = await this.prisma.region.findUnique({
@@ -113,6 +148,10 @@ export class CouriersService {
         branchId: true,
         vehicleType: true,
         vehiclePlate: true,
+        nationalIdImageUrl: true,
+        licenseImageUrl: true,
+        vehicleImageUrl: true,
+        selfieUrl: true,
         status: true,
         rating: true,
         totalDeliveries: true,
@@ -127,17 +166,15 @@ export class CouriersService {
   // LIST
   // ══════════════════════════════════════════════════
   async findAll(query: ListCouriersQueryDto, currentUser: any) {
-    const where: any = {};
+    const scope = this.courierScope(currentUser);
+    const where: any = { AND: [scope] };
 
-    if (currentUser.role === StaffRole.REGIONAL_ADMIN) {
-      where.regionId = currentUser.regionId;
-    } else if (query.regionId) {
-      where.regionId = query.regionId;
-    }
-
+    if (query.regionId) where.AND.push({ regionId: query.regionId });
     if (query.status) where.status = query.status;
     if (query.vehicleType) where.vehicleType = query.vehicleType;
-    if (query.branchId) where.branchId = query.branchId;
+    if (query.branchId) {
+      where.AND.push({ branchId: query.branchId });
+    }
 
     if (query.search) {
       where.OR = [
@@ -163,6 +200,13 @@ export class CouriersService {
           branchId: true,
           vehicleType: true,
           vehiclePlate: true,
+          currentLat: true,
+          currentLng: true,
+          lastSeenAt: true,
+          nationalIdImageUrl: true,
+          licenseImageUrl: true,
+          vehicleImageUrl: true,
+          selfieUrl: true,
           status: true,
           rating: true,
           totalDeliveries: true,
@@ -196,12 +240,7 @@ export class CouriersService {
 
     if (!courier) throw new NotFoundException('Courier not found');
 
-    if (
-      currentUser.role === StaffRole.REGIONAL_ADMIN &&
-      courier.regionId !== currentUser.regionId
-    ) {
-      throw new ForbiddenException('You can only view couriers in your region');
-    }
+    this.assertCourierScope(courier, currentUser);
 
     return courier;
   }
@@ -213,15 +252,18 @@ export class CouriersService {
     const existing = await this.prisma.courier.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Courier not found');
 
-    if (
-      currentUser.role === StaffRole.REGIONAL_ADMIN &&
-      existing.regionId !== currentUser.regionId
-    ) {
-      throw new ForbiddenException('You can only edit couriers in your region');
-    }
+    this.assertCourierScope(existing, currentUser);
 
     // ── Validate region change ──
     const targetRegionId = dto.regionId ?? existing.regionId;
+    const targetBranchId = dto.branchId ?? existing.branchId;
+    if (
+      currentUser.role === StaffRole.BRANCH_MANAGER &&
+      (targetRegionId !== currentUser.regionId ||
+        targetBranchId !== currentUser.branchId)
+    ) {
+      throw new ForbiddenException('You can only manage couriers in your branch');
+    }
     if (dto.regionId && dto.regionId !== existing.regionId) {
       const region = await this.prisma.region.findUnique({
         where: { id: dto.regionId },
@@ -237,7 +279,6 @@ export class CouriersService {
     }
 
     // ── Validate branch change ──
-    const targetBranchId = dto.branchId ?? existing.branchId;
     if (dto.branchId && dto.branchId !== existing.branchId) {
       const branch = await this.prisma.branch.findUnique({
         where: { id: dto.branchId },
@@ -315,6 +356,10 @@ export class CouriersService {
         branchId: true,
         vehicleType: true,
         vehiclePlate: true,
+        nationalIdImageUrl: true,
+        licenseImageUrl: true,
+        vehicleImageUrl: true,
+        selfieUrl: true,
         status: true,
         updatedAt: true,
       },

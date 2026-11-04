@@ -56,8 +56,8 @@ pnpm install
 cp .env.example .env
 # Edit .env — set DATABASE_URL, REDIS_URL, JWT secrets
 
-# 4. Start databases
-docker compose up -d
+# 4. Start PostgreSQL and Redis for local development
+docker compose up -d postgres redis
 
 # 5. Run migrations
 npx prisma migrate dev
@@ -82,11 +82,13 @@ API runs at **`http://localhost:3000/api/v1`**
 NODE_ENV=development
 PORT=3000
 
-DATABASE_URL=postgresql://deliver:deliver_secret@localhost:5433/deliver?schema=public
+DATABASE_URL=postgresql://deliver:<password>@localhost:5433/deliver?schema=public
 REDIS_URL=redis://localhost:6380
 
 JWT_ACCESS_SECRET=<64+ char secret>
 JWT_REFRESH_SECRET=<different 64+ char secret>
+QR_SECRET=<unique secret>
+TRACKING_SECRET=<different unique secret>
 JWT_ACCESS_EXPIRES=15m
 JWT_REFRESH_EXPIRES=30d
 
@@ -95,16 +97,23 @@ OTP_MAX_ATTEMPTS=3
 OTP_RATE_LIMIT_PER_10MIN=3
 
 AFROMESSAGE_TOKEN=
+AFROMESSAGE_IDENTIFIER_ID=
 AFROMESSAGE_SENDER=DELIVER
 
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY=
+
 SUPER_ADMIN_PHONE=0911111111
 SUPER_ADMIN_NAME=Super Admin
 ```
 
-**Generate JWT secrets:**
+Use the complete variable template in `.env.example`. The API requires Firebase credentials at startup. For host-based local development, set the database password in `DATABASE_URL` to match `POSTGRES_PASSWORD`.
+
+**Generate secrets:**
 ```bash
 openssl rand -hex 32
 ```
@@ -203,25 +212,13 @@ src/
 
 ## 🐳 Docker
 
-### Development databases only
+The Compose file starts PostgreSQL, Redis, and the API. For local development, start only the supporting services; their ports are bound to localhost:
 
 ```bash
-docker compose up -d
+docker compose up -d postgres redis
 ```
 
-Runs PostgreSQL (port **5433**) + Redis (port **6380**).
-
-### Full stack (production)
-
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-### Build API image
-
-```bash
-docker build -t deliver-api ./api
-```
+For production deployment, environment configuration, migrations, HTTPS proxy setup, and Super Admin seeding, follow [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ---
 

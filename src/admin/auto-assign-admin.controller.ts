@@ -54,10 +54,12 @@ export class AutoAssignAdminController {
     StaffRole.BRANCH_MANAGER,
   )
   listUnassigned(
+    @CurrentUser() user: any,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.admin.listUnassignedOrders(
+      user.id,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 20,
     );
@@ -70,8 +72,8 @@ export class AutoAssignAdminController {
     StaffRole.REGIONAL_ADMIN,
     StaffRole.BRANCH_MANAGER,
   )
-  listOffers(@Param('id') id: string) {
-    return this.admin.listOrderOffers(id);
+  listOffers(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.admin.listOrderOffers(id, user.id);
   }
 
   // ── Auto-assign stats ──
@@ -81,7 +83,7 @@ export class AutoAssignAdminController {
     StaffRole.REGIONAL_ADMIN,
     StaffRole.BRANCH_MANAGER,
   )
-  getAutoAssignStats() {
-    return this.admin.getAutoAssignStats();
+  getAutoAssignStats(@CurrentUser() user: any) {
+    return this.admin.getAutoAssignStats(user.id);
   }
 }

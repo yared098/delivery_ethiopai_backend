@@ -319,6 +319,49 @@ export class AdminService {
     private autoAssign: AutoAssignService,   // 👈 ADDED
   ) {}
 
+  private async getStaffLocationScope(staffId: string) {
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: staffId },
+      select: { id: true, role: true, regionId: true, branchId: true },
+    });
+    if (!staff) throw new NotFoundException('Staff not found');
+
+    if (staff.role === StaffRole.SUPER_ADMIN) {
+      return { staff, orderWhere: {}, courierWhere: {} };
+    }
+
+    if (staff.role === StaffRole.REGIONAL_ADMIN && staff.regionId) {
+      return {
+        staff,
+        orderWhere: { originBranch: { regionId: staff.regionId } },
+        courierWhere: { regionId: staff.regionId },
+      };
+    }
+
+    if (staff.role === StaffRole.BRANCH_MANAGER && staff.branchId) {
+      return {
+        staff,
+        orderWhere: { originBranchId: staff.branchId },
+        courierWhere: { branchId: staff.branchId },
+      };
+    }
+
+    return {
+      staff,
+      orderWhere: { id: '__no_access__' },
+      courierWhere: { id: '__no_access__' },
+    };
+  }
+
+  private async assertStaffOrderAccess(orderId: string, staffId: string) {
+    const { orderWhere } = await this.getStaffLocationScope(staffId);
+    const order = await this.prisma.order.findFirst({
+      where: { AND: [{ id: orderId }, orderWhere] },
+      select: { id: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+  }
+
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('251') && digits.length === 12) return digits;
@@ -607,6 +650,7 @@ export class AdminService {
    * Manually trigger auto-assign for a stuck order.
    */
   async retryAutoAssign(orderId: string, staffId: string) {
+    await this.assertStaffOrderAccess(orderId, staffId);
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
     });
@@ -647,9 +691,13 @@ export class AdminService {
     staffId: string,
     note?: string,
   ) {
+    const { courierWhere } = await this.getStaffLocationScope(staffId);
+    await this.assertStaffOrderAccess(orderId, staffId);
     const [order, courier] = await Promise.all([
       this.prisma.order.findUnique({ where: { id: orderId } }),
-      this.prisma.courier.findUnique({ where: { id: courierId } }),
+      this.prisma.courier.findFirst({
+        where: { AND: [{ id: courierId }, courierWhere] },
+      }),
     ]);
 
     if (!order) throw new NotFoundException('Order not found');
@@ -699,11 +747,14 @@ export class AdminService {
   /**
    * List orders stuck in PAID with no courier.
    */
-  async listUnassignedOrders(page = 1, limit = 20) {
+  async listUnassignedOrders(staffId: string, page = 1, limit = 20) {
+    const { orderWhere } = await this.getStaffLocationScope(staffId);
     const skip = (page - 1) * limit;
     const where = {
-      status: 'PAID' as const,
-      courierId: null,
+      AND: [
+        { status: 'PAID' as const, courierId: null },
+        orderWhere,
+      ],
     };
 
     const [data, total] = await Promise.all([
@@ -751,7 +802,8 @@ export class AdminService {
   /**
    * List all offers made for an order.
    */
-  async listOrderOffers(orderId: string) {
+  async listOrderOffers(orderId: string, staffId: string) {
+    await this.assertStaffOrderAccess(orderId, staffId);
     return this.prisma.orderOffer.findMany({
       where: { orderId },
       orderBy: { offeredAt: 'desc' },
@@ -773,7 +825,8 @@ export class AdminService {
   /**
    * Auto-assign analytics for the last 24 hours.
    */
-  async getAutoAssignStats() {
+  async getAutoAssignStats(staffId: string) {
+    const { orderWhere } = await this.getStaffLocationScope(staffId);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -786,22 +839,22 @@ export class AdminService {
       avgAttempts,
     ] = await Promise.all([
       this.prisma.orderOffer.count({
-        where: { offeredAt: { gte: today } },
+        where: { offeredAt: { gte: today }, order: orderWhere },
       }),
       this.prisma.orderOffer.count({
-        where: { offeredAt: { gte: today }, status: 'ACCEPTED' },
+        where: { offeredAt: { gte: today }, status: 'ACCEPTED', order: orderWhere },
       }),
       this.prisma.orderOffer.count({
-        where: { offeredAt: { gte: today }, status: 'REJECTED' },
+        where: { offeredAt: { gte: today }, status: 'REJECTED', order: orderWhere },
       }),
       this.prisma.orderOffer.count({
-        where: { offeredAt: { gte: today }, status: 'EXPIRED' },
+        where: { offeredAt: { gte: today }, status: 'EXPIRED', order: orderWhere },
       }),
       this.prisma.order.count({
-        where: { status: 'PAID', courierId: null },
+        where: { AND: [{ status: 'PAID', courierId: null }, orderWhere] },
       }),
       this.prisma.order.aggregate({
-        where: { createdAt: { gte: today } },
+        where: { createdAt: { gte: today }, ...orderWhere },
         _avg: { autoAssignAttempts: true },
       }),
     ]);

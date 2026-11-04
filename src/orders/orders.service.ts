@@ -39,6 +39,58 @@ export class OrdersService {
     private branchResolver: BranchResolverService,
   ) {}
 
+  private orderScope(currentUser: any) {
+    if (currentUser.role === StaffRole.REGIONAL_ADMIN && currentUser.regionId) {
+      return { originBranch: { regionId: currentUser.regionId } };
+    }
+
+    if (currentUser.role === StaffRole.BRANCH_MANAGER && currentUser.branchId) {
+      return { originBranchId: currentUser.branchId };
+    }
+
+    return currentUser.role === StaffRole.SUPER_ADMIN
+      ? {}
+      : { id: '__no_access__' };
+  }
+
+  private async assertOrderAccess(orderId: string, currentUser: any) {
+    const order = await this.prisma.order.findFirst({
+      where: { AND: [{ id: orderId }, this.orderScope(currentUser)] },
+      select: { id: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+  }
+
+  private async assertOriginBranchAccess(
+    originBranchId: string | null,
+    currentUser: any,
+  ) {
+    if (currentUser.accountType !== AccountType.STAFF) return;
+    if (currentUser.role === StaffRole.SUPER_ADMIN) return;
+    if (!originBranchId) {
+      throw new BadRequestException('Staff-created orders require an origin branch');
+    }
+
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: originBranchId },
+      select: { id: true, regionId: true },
+    });
+    if (!branch) throw new BadRequestException('Origin branch not found');
+
+    if (
+      currentUser.role === StaffRole.REGIONAL_ADMIN &&
+      branch.regionId !== currentUser.regionId
+    ) {
+      throw new ForbiddenException('You can only create orders in your region');
+    }
+    if (
+      currentUser.role === StaffRole.BRANCH_MANAGER &&
+      branch.id !== currentUser.branchId
+    ) {
+      throw new ForbiddenException('You can only create orders in your branch');
+    }
+  }
+
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('251') && digits.length === 12) return digits;
@@ -121,13 +173,18 @@ export class OrdersService {
     // 🆕 AUTO-RESOLVE BRANCHES FROM LOCATION
     // ══════════════════════════════════════════════════
     const resolved = await this.branchResolver.resolveForOrder({
-      originBranchId: dto.originBranchId,
+      originBranchId:
+        currentUser.role === StaffRole.BRANCH_MANAGER
+          ? currentUser.branchId
+          : dto.originBranchId,
       destBranchId: dto.destBranchId,
       senderLat: dto.sender.lat,
       senderLng: dto.sender.lng,
       receiverLat: dto.receiver.lat,
       receiverLng: dto.receiver.lng,
     });
+
+    await this.assertOriginBranchAccess(resolved.originBranchId, currentUser);
 
     console.log('📍 Resolved branches:', {
       origin: resolved.originBranch?.name ?? 'none',
@@ -372,7 +429,17 @@ export class OrdersService {
           const updated = await this.prisma.order.findUnique({
             where: { id: order.id },
             include: {
-              courier: { select: { id: true, name: true, phone: true } },
+              courier: {
+                select: {
+                  id: true,
+                  name: true,
+                  phone: true,
+                  currentLat: true,
+                  currentLng: true,
+                  lastSeenAt: true,
+                  isOnline: true,
+                },
+              },
             },
           });
 
@@ -415,17 +482,15 @@ export class OrdersService {
   // LIST
   // ══════════════════════════════════════════════════
   async findAll(query: ListOrdersQueryDto, currentUser: any) {
-    const where: any = {};
-
-    if (currentUser.role === StaffRole.REGIONAL_ADMIN && currentUser.regionId) {
-      where.originBranch = { regionId: currentUser.regionId };
-    }
+    const where: any = { AND: [this.orderScope(currentUser)] };
 
     if (query.status) where.status = query.status;
     if (query.senderId) where.senderId = query.senderId;
     if (query.receiverId) where.receiverId = query.receiverId;
     if (query.courierId) where.courierId = query.courierId;
-    if (query.originBranchId) where.originBranchId = query.originBranchId;
+    if (query.originBranchId) {
+      where.AND.push({ originBranchId: query.originBranchId });
+    }
 
     if (query.search) {
       where.OR = [
@@ -447,7 +512,17 @@ export class OrdersService {
         include: {
           sender: { select: { id: true, name: true, phone: true } },
           receiver: { select: { id: true, name: true, phone: true } },
-          courier: { select: { id: true, name: true, phone: true } },
+          courier: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              currentLat: true,
+              currentLng: true,
+              lastSeenAt: true,
+              isOnline: true,
+            },
+          },
           originBranch: { select: { id: true, name: true, code: true } },
           _count: { select: { items: true } },
         },
@@ -465,8 +540,8 @@ export class OrdersService {
   // GET ONE
   // ══════════════════════════════════════════════════
   async findOne(id: string, currentUser: any) {
-    const order = await this.prisma.order.findUnique({
-      where: { id },
+    const order = await this.prisma.order.findFirst({
+      where: { AND: [{ id }, this.orderScope(currentUser)] },
       include: {
         items: true,
         sender: { select: { id: true, name: true, phone: true, email: true } },
@@ -514,6 +589,7 @@ export class OrdersService {
   async update(id: string, dto: UpdateOrderDto, currentUser: any) {
     const existing = await this.prisma.order.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(id, currentUser);
 
     if (
       existing.status === OrderStatus.DELIVERED ||
@@ -550,6 +626,7 @@ export class OrdersService {
   async assignCourier(orderId: string, courierId: string, currentUser: any) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(orderId, currentUser);
 
     if (
       order.status === OrderStatus.DELIVERED ||
@@ -564,6 +641,27 @@ export class OrdersService {
 
     const courier = await this.prisma.courier.findUnique({ where: { id: courierId } });
     if (!courier) throw new NotFoundException('Courier not found');
+    if (
+      currentUser.role === StaffRole.BRANCH_MANAGER &&
+      courier.branchId !== currentUser.branchId
+    ) {
+      throw new ForbiddenException('You can only assign couriers from your branch');
+    }
+    if (currentUser.role === StaffRole.REGIONAL_ADMIN) {
+      const branch = order.originBranchId
+        ? await this.prisma.branch.findUnique({
+            where: { id: order.originBranchId },
+            select: { regionId: true },
+          })
+        : null;
+      if (
+        courier.regionId !== currentUser.regionId ||
+        !branch ||
+        branch.regionId !== currentUser.regionId
+      ) {
+        throw new ForbiddenException('Order and courier must be in your region');
+      }
+    }
 
     if (courier.status !== 'APPROVED') {
       throw new BadRequestException('Courier must be approved');
@@ -630,6 +728,7 @@ export class OrdersService {
   async autoAssignCourier(orderId: string, currentUser: any) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(orderId, currentUser);
 
     if (order.courierId) {
       throw new BadRequestException('Order already has a courier');
@@ -692,6 +791,7 @@ export class OrdersService {
   ) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(orderId, currentUser);
     if (!order.courierId) throw new BadRequestException('No courier assigned');
 
     if (lat < 3.4 || lat > 14.9 || lng < 32.9 || lng > 48.0) {
@@ -792,6 +892,7 @@ export class OrdersService {
   ) {
     const order = await this.prisma.order.findUnique({ where: { id } });
     if (!order) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(id, currentUser);
 
     if (order.status !== OrderStatus.AWAITING_RECEIVER_LOCATION) {
       throw new BadRequestException('Order does not need receiver location');
@@ -812,6 +913,7 @@ export class OrdersService {
   async cancel(id: string, currentUser: any) {
     const order = await this.prisma.order.findUnique({ where: { id } });
     if (!order) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(id, currentUser);
 
     if (order.status === OrderStatus.DELIVERED) {
       throw new BadRequestException('Cannot cancel a delivered order');
@@ -852,6 +954,7 @@ export class OrdersService {
   async unassignCourier(orderId: string, currentUser: any) {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('Order not found');
+    await this.assertOrderAccess(orderId, currentUser);
 
     if (!order.courierId) {
       throw new BadRequestException('Order has no courier assigned');
