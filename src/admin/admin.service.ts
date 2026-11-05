@@ -311,12 +311,14 @@ import { CreateStaffDto } from './dto/create-staff.dto';
 import { ListStaffQueryDto } from './dto/list-staff-query.dto';
 import { AccountType, StaffRole } from '@prisma/client';
 import { AutoAssignService } from '../auto-assign/auto-assign.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AdminService {
   constructor(
     private prisma: PrismaService,
     private autoAssign: AutoAssignService,   // 👈 ADDED
+    private notifications: NotificationsService,
   ) {}
 
   private async getStaffLocationScope(staffId: string) {
@@ -739,6 +741,12 @@ export class AdminService {
         actorId: staffId,
         isPublic: true,
       },
+    });
+
+    await this.notifications.notifyOrderStatus({
+      ...order,
+      status: 'ASSIGNED',
+      courierId,
     });
 
     return { success: true, courierId, courierName: courier.name };

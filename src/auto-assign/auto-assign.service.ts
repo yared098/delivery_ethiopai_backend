@@ -578,6 +578,7 @@ pickupLng: order.senderLng,
     });
     if (order) {
       this.gateway.emitStatus(order.trackingNumber, 'ASSIGNED');
+      await this.notifications.notifyOrderStatus(order);
     }
 
     this.logger.log(`Order ${orderId} assigned to courier ${courierId}`);

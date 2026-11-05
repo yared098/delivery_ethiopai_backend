@@ -23,6 +23,7 @@ import { AfroMessageService } from '../integrations/afromessage/afromessage.serv
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Public } from '../common/decorators/public.decorator';
 import { AccountType, OrderStatus } from '@prisma/client';
+import { PricingService } from '../orders/pricing.service';
 
 class CompleteDto {
   @Type(() => Number)
@@ -60,6 +61,7 @@ export class ReceiverLinkController {
     private prisma: PrismaService,
     private sms: AfroMessageService,
     private trackingWs: TrackingGateway,
+    private pricing: PricingService,
   ) {}
 
   @Get(':shortCode')
@@ -245,11 +247,28 @@ export class ReceiverLinkController {
     }
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      const existingOrder = await tx.order.findUnique({
+        where: { id: link.orderId },
+        select: { senderLat: true, senderLng: true },
+      });
+      if (!existingOrder) throw new NotFoundException('Order not found');
+
+      const distanceKm =
+        existingOrder.senderLat != null && existingOrder.senderLng != null
+          ? this.pricing.distanceKm(
+              existingOrder.senderLat,
+              existingOrder.senderLng,
+              dto.lat,
+              dto.lng,
+            )
+          : null;
+
       const order = await tx.order.update({
         where: { id: link.orderId },
         data: {
           receiverLat: dto.lat,
           receiverLng: dto.lng,
+          distanceKm,
           receiverLocationSource: 'link',
           status: OrderStatus.PENDING_PAYMENT,
         },

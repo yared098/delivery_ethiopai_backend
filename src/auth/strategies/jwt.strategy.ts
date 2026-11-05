@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { AccountType, StaffRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TokenService } from '../token.service';
 
 interface JwtPayload {
   sub: string;
@@ -11,6 +12,7 @@ interface JwtPayload {
   role?: StaffRole;
   regionId?: string | null;
   branchId?: string | null;
+  family?: string;
   iat?: number;   // ← issued-at (added automatically by JWT)
 }
 
@@ -21,6 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
     private prisma: PrismaService,   // ← ADD
+    private tokens: TokenService,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -31,6 +34,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 
   async validate(payload: JwtPayload) {
     const { sub, accountType, iat } = payload;
+
+    if (
+      [AccountType.STAFF, AccountType.COURIER, AccountType.CUSTOMER].includes(accountType) &&
+      !(await this.tokens.isSessionActive(sub, accountType, payload.family))
+    ) {
+      throw new UnauthorizedException('Session expired. Please log in again.');
+    }
 
     // ══════════════════════════════════════════════════
     // STAFF

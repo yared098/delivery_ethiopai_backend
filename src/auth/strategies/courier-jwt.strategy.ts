@@ -3,11 +3,16 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
-import { CourierStatus } from '@prisma/client';
+import { AccountType, CourierStatus } from '@prisma/client';
+import { TokenService } from '../token.service';
 
 @Injectable()
 export class CourierJwtStrategy extends PassportStrategy(Strategy, 'courier-jwt') {
-  constructor(config: ConfigService, private prisma: PrismaService) {
+  constructor(
+    config: ConfigService,
+    private prisma: PrismaService,
+    private tokens: TokenService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -15,9 +20,18 @@ export class CourierJwtStrategy extends PassportStrategy(Strategy, 'courier-jwt'
     });
   }
 
-  async validate(payload: any) {
-    if (payload.accountType !== 'COURIER') {
+  async validate(payload: { sub: string; accountType: AccountType; family?: string }) {
+    if (payload.accountType !== AccountType.COURIER) {
       throw new UnauthorizedException('Not a courier token');
+    }
+    if (
+      !(await this.tokens.isSessionActive(
+        payload.sub,
+        AccountType.COURIER,
+        payload.family,
+      ))
+    ) {
+      throw new UnauthorizedException('Session expired. Please log in again.');
     }
     const courier = await this.prisma.courier.findUnique({
       where: { id: payload.sub },
@@ -30,7 +44,7 @@ export class CourierJwtStrategy extends PassportStrategy(Strategy, 'courier-jwt'
     }
     return {
       id: courier.id,
-      accountType: 'COURIER',
+      accountType: AccountType.COURIER,
       regionId: courier.regionId,
       branchId: courier.branchId,
     };

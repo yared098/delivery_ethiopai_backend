@@ -352,23 +352,26 @@ export class OrdersService {
       }
     }
 
-    // 3. Generate receiver link if needed
+    // 3. Ask the receiver for their location when the order has no destination.
     let receiverLink: any = null;
-    if (dto.sendReceiverLink && !receiverComplete) {
+    if (!receiverComplete) {
       try {
-        receiverLink = await this.receiverLinks.createForOrder(
+        const link = await this.receiverLinks.createForOrder(
           order.id,
           receiverPhone,
           currentUser.id,
         );
-
-        await this.sms.sendReceiverLink(
+        const smsSent = await this.sms.sendReceiverLink(
           receiverPhone,
           dto.sender.name,
-          receiverLink.url,
+          link.url,
         );
+        receiverLink = { ...link, smsSent };
+        if (!smsSent) {
+          console.error(`Receiver link SMS was not accepted for order ${order.id}`);
+        }
       } catch (err) {
-        console.error('Receiver link creation/SMS failed:', err);
+        console.error(`Receiver link creation failed for order ${order.id}:`, err);
       }
     }
 
@@ -446,6 +449,15 @@ export class OrdersService {
               note: `Courier ${courier.name} assigned`,
               timestamp: new Date().toISOString(),
             });
+            await this.notifications.notifyOrderStatus({
+              id: order.id,
+              trackingNumber,
+              status: OrderStatus.ASSIGNED,
+              senderId: order.senderId,
+              receiverId: order.receiverId,
+              courierId: dto.courierId,
+              senderAddress: order.senderAddress,
+            });
           }
         } catch (err) {
           console.error('Courier manual assignment failed:', err);
@@ -499,6 +511,10 @@ export class OrdersService {
         createdBy: { select: { id: true, name: true } },
       },
     });
+
+    if (finalOrder && finalOrder.status !== OrderStatus.ASSIGNED) {
+      await this.notifications.notifyOrderStatus(finalOrder);
+    }
 
     return {
       order: finalOrder,
@@ -634,6 +650,20 @@ export class OrdersService {
     if (dto.receiverAddress !== undefined) data.receiverAddress = dto.receiverAddress;
     if (dto.receiverLat !== undefined) data.receiverLat = dto.receiverLat;
     if (dto.receiverLng !== undefined) data.receiverLng = dto.receiverLng;
+    const receiverLat = dto.receiverLat ?? existing.receiverLat;
+    const receiverLng = dto.receiverLng ?? existing.receiverLng;
+    data.distanceKm =
+      existing.senderLat != null &&
+      existing.senderLng != null &&
+      receiverLat != null &&
+      receiverLng != null
+        ? this.pricing.distanceKm(
+            existing.senderLat,
+            existing.senderLng,
+            receiverLat,
+            receiverLng,
+          )
+        : null;
     if (dto.packageDescription !== undefined) data.packageDescription = dto.packageDescription;
     if (dto.paymentParty !== undefined) data.paymentParty = dto.paymentParty;
     if (dto.codAmount !== undefined) data.codAmount = dto.codAmount;
@@ -747,6 +777,7 @@ export class OrdersService {
       note: `Courier ${courier.name} assigned`,
       timestamp: new Date().toISOString(),
     });
+    await this.notifications.notifyOrderStatus(updated);
 
     return updated;
   }
@@ -932,8 +963,20 @@ export class OrdersService {
       order.receiverPhone,
       currentUser.id,
     );
+    const smsSent =
+      dto.sendSms === false
+        ? null
+        : await this.sms.sendReceiverLink(
+            order.receiverPhone,
+            order.senderName,
+            link.url,
+          );
 
-    return { link };
+    if (smsSent === false) {
+      console.error(`Receiver link SMS was not accepted for order ${order.id}`);
+    }
+
+    return { link, smsSent };
   }
 
   // ══════════════════════════════════════════════════
@@ -972,6 +1015,10 @@ export class OrdersService {
     this.trackingWs.broadcastOrderEnd(id, {
       outcome: 'CANCELLED',
       message: 'Order cancelled by staff',
+    });
+    await this.notifications.notifyOrderStatus({
+      ...order,
+      status: OrderStatus.CANCELLED,
     });
 
     return { message: 'Order cancelled' };

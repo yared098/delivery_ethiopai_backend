@@ -2,13 +2,14 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { AccountType, StaffRole } from '@prisma/client';
+import { AccountType, Prisma, StaffRole } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { randomUUID } from 'crypto';
 
 export interface AccessPayload {
   sub: string;
   accountType: AccountType;
+  family?: string;
   role?: StaffRole;
   regionId?: string | null;
   branchId?: string | null;
@@ -30,12 +31,14 @@ export class TokenService {
   ) {}
 
   async issueTokens(payload: AccessPayload, meta: Meta) {
-    const accessToken = await this.jwt.signAsync(payload, {
-      secret: this.config.get('JWT_ACCESS_SECRET'),
-      expiresIn: this.config.get('JWT_ACCESS_EXPIRES'),
-    });
-
     const family = randomUUID();
+    const accessToken = await this.jwt.signAsync(
+      { ...payload, family },
+      {
+        secret: this.config.get('JWT_ACCESS_SECRET'),
+        expiresIn: this.config.get('JWT_ACCESS_EXPIRES'),
+      },
+    );
     const refreshToken = await this.jwt.signAsync(
       { sub: payload.sub, accountType: payload.accountType, family },
       {
@@ -60,9 +63,55 @@ export class TokenService {
     if (payload.accountType === AccountType.COURIER) data.courierId = payload.sub;
     if (payload.accountType === AccountType.CUSTOMER) data.customerId = payload.sub;
 
-    await this.prisma.refreshToken.create({ data });
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockAccount(tx, payload.sub, payload.accountType);
+      await tx.refreshToken.updateMany({
+        where: {
+          accountId: payload.sub,
+          accountType: payload.accountType,
+          revokedAt: null,
+        },
+        data: { revokedAt: new Date() },
+      });
+      await tx.refreshToken.create({ data });
+    });
 
     return { accessToken, refreshToken };
+  }
+
+  async isSessionActive(
+    accountId: string,
+    accountType: AccountType,
+    family?: string,
+  ): Promise<boolean> {
+    if (!family) return false;
+
+    const activeToken = await this.prisma.refreshToken.findFirst({
+      where: {
+        accountId,
+        accountType,
+        family,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+
+    return activeToken !== null;
+  }
+
+  private async lockAccount(
+    tx: Prisma.TransactionClient,
+    accountId: string,
+    accountType: AccountType,
+  ) {
+    if (accountType === AccountType.STAFF) {
+      await tx.$queryRaw`SELECT id FROM "staff" WHERE id = ${accountId} FOR UPDATE`;
+    } else if (accountType === AccountType.COURIER) {
+      await tx.$queryRaw`SELECT id FROM "couriers" WHERE id = ${accountId} FOR UPDATE`;
+    } else {
+      await tx.$queryRaw`SELECT id FROM "customers" WHERE id = ${accountId} FOR UPDATE`;
+    }
   }
 
   async rotate(refreshToken: string, meta: Meta) {
@@ -152,10 +201,13 @@ export class TokenService {
       throw new UnauthorizedException('Account inactive');
     }
 
-    const newAccess = await this.jwt.signAsync(payload, {
-      secret: this.config.get('JWT_ACCESS_SECRET'),
-      expiresIn: this.config.get('JWT_ACCESS_EXPIRES'),
-    });
+    const newAccess = await this.jwt.signAsync(
+      { ...payload, family: decoded.family },
+      {
+        secret: this.config.get('JWT_ACCESS_SECRET'),
+        expiresIn: this.config.get('JWT_ACCESS_EXPIRES'),
+      },
+    );
 
     const newRefresh = await this.jwt.signAsync(
       { sub: payload.sub, accountType: payload.accountType, family: decoded.family },

@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Messaging, Message } from 'firebase-admin/messaging';
-import { AccountType, OrderStatus } from '@prisma/client';
+import {
+  AccountType,
+  NotificationType,
+  OrderStatus,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { FIREBASE_MESSAGING } from './firebase.provider';
 
@@ -283,59 +287,160 @@ export class NotificationsService {
     });
   }
 
-  /** Order status change → sender + receiver (+ courier if ASSIGNED) */
+  /** Order status change → sender, receiver, and assigned courier */
   async notifyOrderStatus(order: OrderNotifyPayload) {
     const template = ORDER_STATUS_TEMPLATES[order.status];
     if (!template) return { success: false, error: 'No template' };
 
-    const data = {
+    const data: Record<string, string> = {
       type: 'ORDER_STATUS',
       orderId: order.id,
       status: order.status,
       trackingNumber: order.trackingNumber,
     };
 
-    const tasks: Promise<any>[] = [];
+    const notificationType: NotificationType =
+      order.status === OrderStatus.ASSIGNED
+        ? NotificationType.ORDER_ASSIGNED
+        : order.status === OrderStatus.PICKED_UP
+          ? NotificationType.ORDER_PICKED_UP
+          : order.status === OrderStatus.DELIVERED
+            ? NotificationType.ORDER_DELIVERED
+            : order.status === OrderStatus.FAILED
+              ? NotificationType.ORDER_FAILED
+              : order.status === OrderStatus.CANCELLED
+                ? NotificationType.ORDER_CANCELLED
+                : NotificationType.ORDER_STATUS_CHANGED;
+    const recipients = new Map<
+      string,
+      {
+        accountType: AccountType;
+        accountId: string;
+        title: string;
+        body: string;
+        data: Record<string, string>;
+      }
+    >();
 
-    // → Sender
-    if (order.senderId) {
-      tasks.push(
-        this.sendToAccount('CUSTOMER', order.senderId, {
-          title: template.title,
-          body: `${template.body} (#${order.trackingNumber})`,
-          data,
-        }),
-      );
+    const addCustomer = (customerId?: string | null) => {
+      if (!customerId) return;
+      recipients.set(`CUSTOMER:${customerId}`, {
+        accountType: AccountType.CUSTOMER,
+        accountId: customerId,
+        title: template.title,
+        body: `${template.body} (#${order.trackingNumber})`,
+        data,
+      });
+    };
+
+    addCustomer(order.senderId);
+    addCustomer(order.receiverId);
+
+    if (order.courierId) {
+      const isAssignment = order.status === OrderStatus.ASSIGNED;
+      recipients.set(`COURIER:${order.courierId}`, {
+        accountType: AccountType.COURIER,
+        accountId: order.courierId,
+        title: isAssignment ? TEMPLATES.NEW_ASSIGNMENT.title : template.title,
+        body: isAssignment
+          ? `Pickup from ${order.senderAddress ?? 'sender'} (#${order.trackingNumber})`
+          : `${template.body} (#${order.trackingNumber})`,
+        data: isAssignment
+          ? {
+              type: 'NEW_ASSIGNMENT',
+              orderId: order.id,
+              trackingNumber: order.trackingNumber,
+            }
+          : data,
+      });
     }
 
-    // → Receiver (only if linked as Customer)
-    if (order.receiverId) {
-      tasks.push(
-        this.sendToAccount('CUSTOMER', order.receiverId, {
-          title: template.title,
-          body: `${template.body} (#${order.trackingNumber})`,
-          data,
-        }),
-      );
-    }
+    const results = await Promise.allSettled(
+      Array.from(recipients.values()).map(async (recipient) => {
+        let notificationId: string | undefined;
+        try {
+          const saved = await this.prisma.notification.create({
+            data: {
+              type: notificationType,
+              accountType: recipient.accountType,
+              ...(recipient.accountType === AccountType.CUSTOMER
+                ? { customerId: recipient.accountId }
+                : { courierId: recipient.accountId }),
+              title: recipient.title,
+              body: recipient.body,
+              data: recipient.data,
+              orderId: order.id,
+            },
+            select: { id: true },
+          });
+          notificationId = saved.id;
+        } catch (error) {
+          this.logger.error(
+            `Failed to save order notification for ${recipient.accountType} ${recipient.accountId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
 
-    // → Courier when assigned
-    if (order.status === 'ASSIGNED' && order.courierId) {
-      tasks.push(
-        this.sendToAccount('COURIER', order.courierId, {
-          title: TEMPLATES.NEW_ASSIGNMENT.title,
-          body: `Pickup from ${order.senderAddress ?? 'sender'}`,
-          data: {
-            type: 'NEW_ASSIGNMENT',
-            orderId: order.id,
-            trackingNumber: order.trackingNumber,
-          },
-        }),
-      );
-    }
+        let pushResult:
+          | Awaited<ReturnType<NotificationsService['sendToAccount']>>
+          | undefined;
+        try {
+          pushResult = await this.sendToAccount(
+            recipient.accountType,
+            recipient.accountId,
+            {
+              title: recipient.title,
+              body: recipient.body,
+              data: recipient.data,
+            },
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to send order push to ${recipient.accountType} ${recipient.accountId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
 
-    const results = await Promise.allSettled(tasks);
-    return { success: true, results: results.length };
+        const pushSent =
+          pushResult?.success === true && (pushResult.sent ?? 0) > 0;
+        if (notificationId) {
+          const pushError = pushSent
+            ? (pushResult?.failed ?? 0) > 0
+              ? `${pushResult?.failed} device push(es) failed`
+              : null
+            : pushResult?.error ?? 'No push notifications delivered';
+          try {
+            await this.prisma.notification.update({
+              where: { id: notificationId },
+              data: {
+                pushSent,
+                pushSentAt: pushSent ? new Date() : null,
+                pushError,
+              },
+            });
+          } catch (error) {
+            this.logger.error(
+              `Failed to update order notification delivery status ${notificationId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+
+        return { pushSent };
+      }),
+    );
+
+    return {
+      success: true,
+      recipients: recipients.size,
+      processed: results.filter((result) => result.status === 'fulfilled').length,
+      pushSent: results.filter(
+        (result) => result.status === 'fulfilled' && result.value.pushSent,
+      ).length,
+    };
   }
 
   /** Courier approved by staff */

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChapaService } from './chapa.service';
 import { InitChapaPaymentDto } from './dto/init-chapa-payment.dto';
 import { AutoAssignService } from '../auto-assign/auto-assign.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import {
   PaymentMethod,
@@ -25,7 +26,7 @@ export class PaymentsService {
     private prisma: PrismaService,
     private chapa: ChapaService,
       private autoAssign: AutoAssignService,   // 👈 ADD THIS
-
+      private notifications: NotificationsService,
   ) {}
 
   // ══════════════════════════════════════════════════
@@ -218,7 +219,7 @@ export class PaymentsService {
     ? PaymentStatus.PAID
     : PaymentStatus.FAILED;
 
-  await this.prisma.$transaction(async (tx) => {
+  const updatedOrder = await this.prisma.$transaction(async (tx) => {
     await tx.payment.update({
       where: { id: payment.id },
       data: {
@@ -228,27 +229,33 @@ export class PaymentsService {
       },
     });
 
-    if (result.verified) {
-      await tx.order.update({
-        where: { id: payment.orderId },
-        data: {
-          paymentStatus: PaymentStatus.PAID,
-          paymentMethod: PaymentMethod.CHAPA,
-          paidAt: new Date(),
-          status: OrderStatus.PAID,
-        },
-      });
+    if (!result.verified) return null;
 
-      await tx.orderEvent.create({
-        data: {
-          orderId: payment.orderId,
-          status: OrderStatus.PAID,
-          note: `Payment received via Chapa (${txRef})`,
-          isPublic: true,
-        },
-      });
-    }
+    const updated = await tx.order.update({
+      where: { id: payment.orderId },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        paymentMethod: PaymentMethod.CHAPA,
+        paidAt: new Date(),
+        status: OrderStatus.PAID,
+      },
+    });
+
+    await tx.orderEvent.create({
+      data: {
+        orderId: payment.orderId,
+        status: OrderStatus.PAID,
+        note: `Payment received via Chapa (${txRef})`,
+        isPublic: true,
+      },
+    });
+
+    return updated;
   });
+
+  if (updatedOrder) {
+    await this.notifications.notifyOrderStatus(updatedOrder);
+  }
 
   // ══════════════════════════════════════════════════
   // 🚀 TRIGGER AUTO-ASSIGN (outside transaction)
