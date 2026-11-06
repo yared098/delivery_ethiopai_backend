@@ -1,4 +1,4 @@
-# 📘 Deliver Ethiopia — API Documentation
+# 📘 Truest Express — API Documentation
 
 Base URL (dev): `http://localhost:3000/api/v1`
 Base URL (prod): `https://api.deliver.et/api/v1`

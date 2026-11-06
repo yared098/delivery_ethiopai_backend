@@ -72,7 +72,7 @@ export class ChapaService {
       callback_url: params.callbackUrl,
       return_url: params.returnUrl,
       customization: {
-        title: params.title || 'Deliver Ethiopia',
+        title: params.title || 'Truest Express',
         description: params.description || `Payment ${params.txRef}`,
       },
     };

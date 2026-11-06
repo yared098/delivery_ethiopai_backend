@@ -126,7 +126,7 @@ export class PaymentsService {
       txRef,
       callbackUrl: webhookUrl,
       returnUrl,
-      title: 'Deliver Ethiopia',
+      title: 'Truest Express',
       description: `Order ${order.trackingNumber}`,
       provider,
     });

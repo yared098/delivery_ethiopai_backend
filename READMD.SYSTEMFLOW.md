@@ -1,4 +1,4 @@
-# 🚚 Deliver Ethiopia — Complete System Documentation
+# 🚚 Truest Express — Complete System Documentation
 
 **A multi-region express delivery platform for Ethiopia.**
 
@@ -1094,7 +1094,7 @@ flutter run
 
 ## 📄 License
 
-MIT © 2026 Deliver Ethiopia
+MIT © 2026 Truest Express
 
 ---
 

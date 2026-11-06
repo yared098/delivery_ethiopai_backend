@@ -1,4 +1,4 @@
-# Deliver Ethiopia — Backend API 🚚
+# Truest Express — Backend API 🚚
 
 Backend API for a multi-region express delivery platform in Ethiopia.
 
@@ -261,4 +261,4 @@ pnpm run seed:super-admin    # Create Super Admin (one-time)
 
 ## 📄 License
 
-MIT © 2026 Deliver Ethiopia# delivery_ethiopai_backend
+MIT © 2026 Truest Express# delivery_ethiopai_backend

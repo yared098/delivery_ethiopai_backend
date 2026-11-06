@@ -53,7 +53,7 @@ export const ORDER_STATUS_TEMPLATES: Partial<Record<OrderStatus, Template>> = {
 // ── Standalone event templates ──
 export const TEMPLATES = {
   WELCOME_CUSTOMER: {
-    title: 'Welcome to Deliver Ethiopia 🎉',
+    title: 'Welcome to Truest Express 🎉',
     body: 'Your account is ready. Start sending parcels today!',
   },
   COURIER_APPROVED: {
