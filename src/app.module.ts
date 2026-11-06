@@ -21,6 +21,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CourierAppModule } from './courier-app/courier-app.module';
 import { PaymentsModule } from './payments/payments.module';
+import { TelegramModule } from './telegram/telegram.module';
+import { TelegramBotModule } from './telegram/bot/telegram-bot.module';
 import { AutoAssignModule } from './auto-assign/auto-assign.module';
 
 
@@ -46,7 +48,9 @@ import { AutoAssignModule } from './auto-assign/auto-assign.module';
     NotificationsModule,
     CourierAppModule,
     PaymentsModule,
-    AutoAssignModule
+    AutoAssignModule,
+    TelegramModule,
+    TelegramBotModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })

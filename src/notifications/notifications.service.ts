@@ -6,6 +6,7 @@ import {
   OrderStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { TelegramNotifierService } from '../telegram/telegram-notifier.service';
 import { FIREBASE_MESSAGING } from './firebase.provider';
 
 import {
@@ -38,6 +39,7 @@ export class NotificationsService {
     @Inject(FIREBASE_MESSAGING)
     private readonly messaging: Messaging,
     private readonly prisma: PrismaService,
+    private readonly telegram: TelegramNotifierService,
   ) {}
 
   // ══════════════════════════════════════════════════
@@ -291,6 +293,23 @@ export class NotificationsService {
   async notifyOrderStatus(order: OrderNotifyPayload) {
     const template = ORDER_STATUS_TEMPLATES[order.status];
     if (!template) return { success: false, error: 'No template' };
+
+    // Mirror the status change to Telegram for linked customers.
+    void this.telegram
+      .notifyOrderStatus({
+        id: order.id,
+        trackingNumber: order.trackingNumber,
+        status: order.status,
+        senderId: order.senderId,
+        receiverId: order.receiverId,
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          `Telegram order status push failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
 
     const data: Record<string, string> = {
       type: 'ORDER_STATUS',
