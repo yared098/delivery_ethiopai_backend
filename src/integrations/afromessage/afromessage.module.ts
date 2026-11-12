@@ -1,8 +1,9 @@
-import { Global, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { AfroMessageService } from './afromessage.service';
+import { TelegramModule } from '../../telegram/telegram.module';
 
-@Global()
 @Module({
+  imports: [TelegramModule],           // ← add this
   providers: [AfroMessageService],
   exports: [AfroMessageService],
 })
