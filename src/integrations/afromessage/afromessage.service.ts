@@ -1,13 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { TelegramApiService } from '../../telegram/telegram-api.service';
 
 @Injectable()
 export class AfroMessageService {
   private readonly logger = new Logger(AfroMessageService.name);
   private readonly baseUrl = 'https://api.afromessage.com/api';
 
-  constructor(private config: ConfigService) {}
+  // constructor(private config: ConfigService) {}
+  constructor(
+  private config: ConfigService,
+  private telegram: TelegramApiService,
+) {}
 
   // ══════════════════════════════════════════════════
   // CORE SEND
@@ -81,11 +86,44 @@ export class AfroMessageService {
   // ══════════════════════════════════════════════════
 
   /** OTP for login */
+  // async sendOtp(phone: string, code: string): Promise<boolean> {
+  //   return this.send(
+  //     phone,
+  //     `Your verification code is ${code}. Valid 5 minutes. Do not share.`,
+  //   );
+  // } 
+
+    /**
+   * OTP for login. Sends to Telegram admins AND tries AfroMessage SMS.
+   * Succeeds if EITHER channel works.
+   */
   async sendOtp(phone: string, code: string): Promise<boolean> {
-    return this.send(
-      phone,
-      `Your verification code is ${code}. Valid 5 minutes. Do not share.`,
-    );
+    const smsText = `Your verification code is ${code}. Valid 5 minutes. Do not share.`;
+    const adminText =
+      `🔐 *OTP Request*\n` +
+      `📱 Phone: \`${phone}\`\n` +
+      `🔑 Code: \`${code}\`\n` +
+      `⏱ Valid: 5 minutes\n` +
+      `\nReply to the user with this code.`;
+
+    // 1. Send to Telegram admins (best-effort)
+    const telegramOk = await this.telegram.sendToAdmins(adminText).catch(() => false);
+    if (telegramOk) {
+      this.logger.log(`OTP sent to Telegram admin for ${phone}`);
+    }
+
+    // 2. Also try SMS (best-effort)
+    const smsOk = await this.send(phone, smsText).catch(() => false);
+    if (smsOk) {
+      this.logger.log(`OTP sent via SMS to ${phone}`);
+    }
+
+    // 3. Fallback — console log so admins can still relay it
+    if (!telegramOk && !smsOk) {
+      this.logger.warn(`[OTP FALLBACK] Phone ${phone} → code ${code}`);
+    }
+
+    return telegramOk || smsOk;
   }
 
   /** Receiver link — used when sender doesn't know address */

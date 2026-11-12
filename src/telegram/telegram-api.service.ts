@@ -133,6 +133,33 @@ export class TelegramApiService {
       });
     }
   }
+    /**
+   * Send a message to all configured admin chat IDs.
+   * Reads TELEGRAM_ADMIN_CHAT_IDS (comma-separated).
+   * Returns true if at least one admin received it.
+   */
+  async sendToAdmins(text: string): Promise<boolean> {
+    const admins = (this.config.get<string>('TELEGRAM_ADMIN_CHAT_IDS') ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (admins.length === 0) {
+      this.logger.warn('No TELEGRAM_ADMIN_CHAT_IDS configured — admin notify skipped');
+      return false;
+    }
+
+    let sent = 0;
+    for (const chatId of admins) {
+      try {
+        const ok = await this.sendMessage(chatId, text);
+        if (ok) sent++;
+      } catch (err: any) {
+        this.logger.error(`Admin notify to ${chatId} failed: ${err.message}`);
+      }
+    }
+    return sent > 0;
+  }
 
   async editMessageText(
     chatId: string | number,
