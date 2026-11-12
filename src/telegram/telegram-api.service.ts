@@ -151,12 +151,13 @@ export class TelegramApiService {
 
     let sent = 0;
     for (const chatId of admins) {
-      try {
-        const ok = await this.sendMessage(chatId, text);
-        if (ok) sent++;
-      } catch (err: any) {
-        this.logger.error(`Admin notify to ${chatId} failed: ${err.message}`);
-      }
+      // Use `call()` directly so we get a real success/fail signal
+      const result = await this.call<{ message_id: number }>('sendMessage', {
+        chat_id: chatId,
+        text,
+        disable_web_page_preview: true,
+      });
+      if (result !== null) sent++;
     }
     return sent > 0;
   }
