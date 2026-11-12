@@ -1,14 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
-import { NestExpressApplication } from '@nestjs/platform-express';  // ← ADD
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import * as os from 'os';
-import { join } from 'path';                                         // ← ADD
+import { join } from 'path';
 
 async function bootstrap() {
-  // 👇 ADD <NestExpressApplication> so we can call useStaticAssets()
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.use(
@@ -27,15 +26,59 @@ async function bootstrap() {
   });
 
   // ══════════════════════════════════════════════════
-  // 🔑 THE FIX — serve /uploads/* as static files
+  //  🩺 HEALTH CHECK — before global prefix so it lives at /health
+  //  (not /api/v1/health) so monitoring tools find it easily
+  // ══════════════════════════════════════════════════
+  const startedAt = Date.now();
+
+  app.use('/health', (req: any, res: any) => {
+    const uptimeMs = Date.now() - startedAt;
+    const uptimeSec = Math.floor(uptimeMs / 1000);
+    const uptimeMin = Math.floor(uptimeSec / 60);
+    const uptimeHr = Math.floor(uptimeMin / 60);
+    const uptimeDay = Math.floor(uptimeHr / 24);
+
+    const mem = process.memoryUsage();
+
+    res.status(200).json({
+      status: 'ok',
+      service: 'delivery-ethiopia-api',
+      version: process.env.npm_package_version || '0.1.0',
+      environment: process.env.NODE_ENV || 'production',
+      timestamp: new Date().toISOString(),
+      uptime: {
+        seconds: uptimeSec,
+        human: `${uptimeDay}d ${uptimeHr % 24}h ${uptimeMin % 60}m ${uptimeSec % 60}s`,
+      },
+      memory: {
+        rss_mb: Math.round(mem.rss / 1024 / 1024),
+        heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+        heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+      },
+      node: process.version,
+      pid: process.pid,
+    });
+  });
+
+  // Also respond at /healthz (alternative common name)
+  app.use('/healthz', (req: any, res: any) => res.redirect(307, '/health'));
+
+  // ══════════════════════════════════════════════════
+  //  STATIC FILES (uploads)
   // ══════════════════════════════════════════════════
   app.useStaticAssets(join(process.cwd(), 'uploads'), {
     prefix: '/uploads/',
   });
 
-  // Exclude /uploads/* from the api/v1 prefix
+  // ══════════════════════════════════════════════════
+  //  GLOBAL PREFIX — exclude health + uploads
+  // ══════════════════════════════════════════════════
   app.setGlobalPrefix('api/v1', {
-    exclude: ['uploads/(.*)'],
+    exclude: [
+      'health',
+      'healthz',
+      'uploads/(.*)',
+    ],
   });
 
   app.useGlobalPipes(
@@ -54,6 +97,7 @@ async function bootstrap() {
 
   if (process.env.RENDER || process.env.NODE_ENV === 'production') {
     logger.log(`🚀 API running on port ${port}`);
+    logger.log(`🩺 Health:  http://localhost:${port}/health`);
     return;
   }
 
@@ -73,6 +117,7 @@ async function bootstrap() {
   }
   logger.log(`🤖 Emu:     http://10.0.2.2:${port}/api/v1  (Android emulator)`);
   logger.log(`🖼️  Files:   http://localhost:${port}/uploads/...`);
+  logger.log(`🩺 Health:  http://localhost:${port}/health`);
 }
 
 bootstrap();
