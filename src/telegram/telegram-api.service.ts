@@ -23,13 +23,39 @@ export interface TelegramChat {
   username?: string;
 }
 
+export interface TelegramPhotoSize {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
+
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
+export interface TelegramLocation {
+  latitude: number;
+  longitude: number;
+  horizontal_accuracy?: number;
+}
+
 export interface TelegramMessage {
   message_id: number;
   from?: TelegramUser;
   chat: TelegramChat;
   date: number;
   text?: string;
+  caption?: string;
   contact?: { phone_number: string; first_name: string; user_id?: number };
+  photo?: TelegramPhotoSize[];
+  document?: TelegramDocument;
+  location?: TelegramLocation;
 }
 
 export interface TelegramCallbackQuery {
@@ -87,7 +113,10 @@ export class TelegramApiService {
     return token && token.trim().length > 0 ? token.trim() : undefined;
   }
 
-  async call<T>(method: string, payload: Record<string, unknown> = {}): Promise<T | null> {
+  async call<T>(
+    method: string,
+    payload: Record<string, unknown> | FormData = {},
+  ): Promise<T | null> {
     const token = this.token;
     if (!token) {
       this.logger.warn(`TELEGRAM_BOT_TOKEN is not set — skipped ${method}`);
@@ -112,6 +141,76 @@ export class TelegramApiService {
           ? err.message
           : String(err);
       this.logger.error(`Telegram ${method} failed: ${message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Send a photo (buffer or URL) to a Telegram chat, with optional caption and buttons.
+   */
+  async sendPhoto(
+    chatId: string | number,
+    photo: Buffer | string,
+    caption?: string,
+    replyMarkup?: Record<string, unknown>,
+  ): Promise<TelegramMessage | null> {
+    const token = this.token;
+    if (!token) {
+      this.logger.warn(`TELEGRAM_BOT_TOKEN is not set — skipped sendPhoto`);
+      return null;
+    }
+
+    try {
+      if (typeof photo === 'string' && /^https?:\/\//i.test(photo)) {
+        return await this.call<TelegramMessage>('sendPhoto', {
+          chat_id: chatId,
+          photo,
+          ...(caption ? { caption } : {}),
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+        });
+      }
+
+      let buffer: Buffer;
+      if (Buffer.isBuffer(photo)) {
+        buffer = photo;
+      } else if (typeof photo === 'string' && photo.startsWith('data:')) {
+        const base64Data = photo.replace(/^data:image\/\w+;base64,/, '');
+        buffer = Buffer.from(base64Data, 'base64');
+      } else {
+        buffer = Buffer.from(photo);
+      }
+
+      const form = new FormData();
+      form.append('chat_id', String(chatId));
+      form.append('photo', new Blob([buffer as any], { type: 'image/png' }), 'order-qr.png');
+      if (caption) {
+        const safeCaption =
+          caption.length > 1024 ? caption.slice(0, 1020) + '...' : caption;
+        form.append('caption', safeCaption);
+      }
+      if (replyMarkup) {
+        form.append('reply_markup', JSON.stringify(replyMarkup));
+      }
+
+      const res = await this.http.post<TelegramApiResult<TelegramMessage>>(
+        `/bot${token}/sendPhoto`,
+        form,
+      );
+
+      if (!res.data?.ok) {
+        this.logger.error(
+          `Telegram sendPhoto rejected: ${res.data?.description ?? 'unknown error'}`,
+        );
+        return null;
+      }
+      return res.data.result ?? null;
+    } catch (err: unknown) {
+      const message = axios.isAxiosError(err)
+        ? `${err.response?.status ?? 'network'} ${JSON.stringify(err.response?.data ?? err.message)}`
+        : err instanceof Error
+          ? err.message
+          : String(err);
+      this.logger.error(`Telegram sendPhoto failed: ${message}`);
       return null;
     }
   }
@@ -204,6 +303,41 @@ export class TelegramApiService {
 
   async getMe(): Promise<TelegramUser | null> {
     return this.call<TelegramUser>('getMe');
+  }
+
+  /**
+   * Get file metadata from Telegram Bot API.
+   */
+  async getFile(
+    fileId: string,
+  ): Promise<{ file_id: string; file_unique_id: string; file_path?: string; file_size?: number } | null> {
+    return this.call('getFile', { file_id: fileId });
+  }
+
+  /**
+   * Download file content from Telegram by file_path as a Buffer.
+   */
+  async downloadFile(filePath: string): Promise<Buffer | null> {
+    const token = this.token;
+    if (!token) {
+      this.logger.warn('TELEGRAM_BOT_TOKEN not configured — cannot download file');
+      return null;
+    }
+    try {
+      const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+      const res = await axios.get(url, {
+        responseType: 'arraybuffer',
+        timeout: TELEGRAM_CALL_TIMEOUT_MS,
+      });
+      return Buffer.from(res.data);
+    } catch (err: unknown) {
+      this.logger.error(
+        `Failed to download file from Telegram (${filePath}): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return null;
+    }
   }
 
   async deleteMessage(chatId: string | number, messageId: number): Promise<void> {

@@ -10,7 +10,9 @@ export type BotStep =
   | 'order:receiver_name'
   | 'order:receiver_phone'
   | 'order:item'
+  | 'order:photo'
   | 'order:weight'
+  | 'order:sender_location'
   | 'order:payment'
   | 'order:confirm'
   | 'track:number';
@@ -24,8 +26,13 @@ export interface SessionData {
   receiverName?: string;
   receiverPhone?: string;
   itemDescription?: string;
+  photoUrl?: string;
   weightKg?: number;
   paymentParty?: PaymentPartyChoice;
+  // sender location (captured during order wizard)
+  senderLat?: number;
+  senderLng?: number;
+  senderAddress?: string;
 }
 
 export interface BotSession {

@@ -23,17 +23,22 @@ export type TranslationKey =
   | 'btn.back'
   | 'btn.refresh'
   | 'btn.openTracking'
+  | 'btn.showQr'
   | 'btn.register'
   | 'btn.callSupport'
+  | 'btn.shareLocation'
+  | 'btn.openOrderForm'
+  | 'btn.useWizard'
   // common
-  | 'welcome'
-  | 'welcomeBack'
+  | 'welcome'  | 'welcomeBack'
   | 'help'
   | 'unknownCommand'
   | 'cancelled'
   | 'notRegistered'
   | 'registeredAs'
   | 'mainMenu'
+  | 'menuPlaceholder'
+  | 'locationPlaceholder'
   // language
   | 'languageTitle'
   | 'languageSet'
@@ -57,7 +62,15 @@ export type TranslationKey =
   | 'orderAskReceiverName'
   | 'orderAskReceiverPhone'
   | 'orderAskItem'
+  | 'orderAskPhoto'
+  | 'orderAskPhotoInvalid'
+  | 'orderPhotoUploading'
+  | 'orderPhotoUploaded'
+  | 'orderPhotoUploadFailed'
   | 'orderAskWeight'
+  | 'orderAskSenderLocation'
+  | 'orderSenderLocationReceived'
+  | 'orderSenderLocationSkipped'
   | 'orderAskPaymentParty'
   | 'paySender'
   | 'payReceiver'
@@ -71,6 +84,9 @@ export type TranslationKey =
   | 'orderDetailsTitle'
   | 'senderLabel'
   | 'receiverLabel'
+  | 'itemLabel'
+  | 'photoLabel'
+  | 'photoAttached'
   | 'feeLabel'
   | 'weightLabel'
   | 'statusLabel'
@@ -79,6 +95,8 @@ export type TranslationKey =
   | 'eventsTitle'
   | 'noEvents'
   | 'estimateFrom'
+  | 'orderQrPrompt'
+  | 'qrCodeNotFound'
   // tracking
   | 'trackAsk'
   | 'trackNotFound'
@@ -88,7 +106,8 @@ export type TranslationKey =
   | 'invalidPhone'
   | 'invalidWeight'
   | 'invalidName'
-  | 'invalidItem';
+  | 'invalidItem'
+  | 'createOrderChoose';
 
 type Dictionary = Record<TranslationKey, string>;
 
@@ -105,8 +124,12 @@ const en: Dictionary = {
   'btn.back': 'Back',
   'btn.refresh': 'Refresh',
   'btn.openTracking': 'Live tracking',
+  'btn.showQr': 'QR Code',
   'btn.register': 'Register',
   'btn.callSupport': 'Call support',
+  'btn.shareLocation': '📍 Share my location',
+  'btn.openOrderForm': '🌐 Open order form',
+  'btn.useWizard': '💬 Use chat wizard',
 
   welcome:
     'Welcome to Deliver Ethiopia.\nSend a parcel anywhere in Ethiopia and follow it in real time.',
@@ -127,6 +150,8 @@ const en: Dictionary = {
     'Your Telegram is not linked to a Deliver Ethiopia account yet.\nSend /register to create one, or /link 0912345678 to connect an existing account.',
   registeredAs: 'Signed in as {name}.',
   mainMenu: 'What would you like to do?',
+  menuPlaceholder: 'Choose an option or type a command...',
+  locationPlaceholder: 'Tap the button to share location, or tap Skip...',
 
   languageTitle: 'Choose a language:',
   languageSet: 'Language set to English.',
@@ -152,7 +177,16 @@ const en: Dictionary = {
   orderAskReceiverName: 'Receiver name:',
   orderAskReceiverPhone: 'Receiver phone, for example 0912345678:',
   orderAskItem: 'What are you sending? Describe the item:',
+  orderAskPhoto: '📸 Send a photo of the item/package (max 2MB), or tap Skip:',
+  orderAskPhotoInvalid: 'Please send a photo of the item, or tap Skip to continue.',
+  orderPhotoUploading: '⏳ Compressing and uploading photo...',
+  orderPhotoUploaded: '✅ Photo uploaded and compressed successfully ({size})!',
+  orderPhotoUploadFailed: 'Could not process that photo. Please try another image, or tap Skip.',
   orderAskWeight: 'Weight in kg, for example 2.5:',
+  orderAskSenderLocation:
+    '📍 Share your pickup location so the driver knows where to collect the parcel.\nTap the button below, or tap Skip to use your saved address.',
+  orderSenderLocationReceived: '✅ Pickup location saved.',
+  orderSenderLocationSkipped: 'Using your saved address for pickup.',
   orderAskPaymentParty: 'Who pays the delivery fee?',
   paySender: 'I pay',
   payReceiver: 'Receiver pays',
@@ -168,6 +202,9 @@ const en: Dictionary = {
   orderDetailsTitle: 'Order {tracking}',
   senderLabel: 'Sender',
   receiverLabel: 'Receiver',
+  itemLabel: 'Item',
+  photoLabel: 'Photo',
+  photoAttached: 'Attached',
   feeLabel: 'Fee',
   weightLabel: 'Weight',
   statusLabel: 'Status',
@@ -176,6 +213,8 @@ const en: Dictionary = {
   eventsTitle: 'Latest updates',
   noEvents: 'No updates yet.',
   estimateFrom: 'from {fee}',
+  orderQrPrompt: 'Show this QR code to the driver at pickup time for order {tracking}.',
+  qrCodeNotFound: 'QR code not available for this order.',
 
   trackAsk: 'Send /track <tracking number>, for example /track ETH-2026-ABC123',
   trackNotFound: 'No order found for {number}.',
@@ -187,6 +226,7 @@ const en: Dictionary = {
   invalidWeight: 'Send the weight as a number between 0.01 and 5000 kg.',
   invalidName: 'Send at least 2 characters.',
   invalidItem: 'Describe the item in at least 2 characters.',
+  createOrderChoose: 'How would you like to create your order?',
 };
 
 const am: Dictionary = {
@@ -202,8 +242,12 @@ const am: Dictionary = {
   'btn.back': 'ተመለስ',
   'btn.refresh': 'አድስ',
   'btn.openTracking': 'ቀጥታ ክትትል',
+  'btn.showQr': 'QR ኮድ',
   'btn.register': 'ተመዝገብ',
   'btn.callSupport': 'ድጋፍ ይደውሉ',
+  'btn.shareLocation': '📍 ቦታዬን አጋራ',
+  'btn.openOrderForm': '🌐 ፎርም ክፈት',
+  'btn.useWizard': '💬 ቦቱን ተጠቀም',
 
   welcome:
     'እንኳን ወደ ዴሊቨር ኢትዮጵያ በደህና መጡ።\nበኢትዮጵያ ውስጥ በማንኛውም ቦታ ፓርሴል ይላኩ እና በቀጥታ ይከታተሉ።',
@@ -224,6 +268,8 @@ const am: Dictionary = {
     'ይህ ቴሌግራም ከዴሊቨር ኢትዮጵያ አካውንት ጋር አልተገናኘም።\nአዲስ ለመክፈት /register ይላኩ፤ ያለውን ለማገናኘት /link 0912345678 ይላኩ።',
   registeredAs: 'እንደ {name} ገብተዋል።',
   mainMenu: 'ምን ማድረግ ይፈልጋሉ?',
+  menuPlaceholder: 'አማራጭ ይምረጡ ወይም ትዕዛዝ ይጻፉ...',
+  locationPlaceholder: 'ቦታዎን ለማጋራት አዝራሩን ይጫኑ ወይም ዝለልን ይጫኑ...',
 
   languageTitle: 'ቋንቋ ይምረጡ፦',
   languageSet: 'ቋንቋ ወደ አማርኛ ተቀይሯል።',
@@ -247,7 +293,16 @@ const am: Dictionary = {
   orderAskReceiverName: 'የተቀባዩ ስም፦',
   orderAskReceiverPhone: 'የተቀባዩ ስልክ ቁጥር፣ ለምሳሌ 0912345678፦',
   orderAskItem: 'ምን ይላካሉ? እቃውን ይግለጹ፦',
+  orderAskPhoto: '📸 የእቃውን/የፓርሴሉን ፎቶ ይላኩ (ከ2MB በታች ይቀነሳል)፣ ወይም "ዝለል" የሚለውን ይጫኑ፦',
+  orderAskPhotoInvalid: 'እባክዎ የእቃውን ፎቶ ይላኩ፣ ወይም ያለ ፎቶ ለመቀጠል "ዝለል" የሚለውን ይጫኑ።',
+  orderPhotoUploading: '⏳ ፎቶውን እያስተካከልንና እየጫንን ነው...',
+  orderPhotoUploaded: '✅ ፎቶው በተሳካ ሁኔታ ተጭኗል ({size})!',
+  orderPhotoUploadFailed: 'ፎቶውን ማስኬድ አልተቻለም። እባክዎ ሌላ ፎቶ ይላኩ ወይም "ዝለል" ይጫኑ።',
   orderAskWeight: 'ክብደት በኪሎግራም፣ ለምሳሌ 2.5፦',
+  orderAskSenderLocation:
+    '📍 ሹፌሩ እቃዎን የሚወስድበትን ቦታ ያጋሩ።\nከታች ያለውን አዝራር ይጫኑ፣ ወይም ያስቀመጡትን አድራሻ ለመጠቀም \"ዝለል\" ይጫኑ።',
+  orderSenderLocationReceived: '✅ የመውሰጃ ቦታ ተቀምጧል።',
+  orderSenderLocationSkipped: 'ያስቀመጡት አድራሻ ለመውሰጃ ቦታ ይጠቅማል።',
   orderAskPaymentParty: 'የማድረሻውን ክፍያ ማን ይከፍላል?',
   paySender: 'እኔ እከፍላለሁ',
   payReceiver: 'ተቀባዩ ይከፍላል',
@@ -263,6 +318,9 @@ const am: Dictionary = {
   orderDetailsTitle: 'ትዕዛዝ {tracking}',
   senderLabel: 'ላኪ',
   receiverLabel: 'ተቀባይ',
+  itemLabel: 'እቃ',
+  photoLabel: 'ፎቶ',
+  photoAttached: 'ተያይዟል',
   feeLabel: 'ክፍያ',
   weightLabel: 'ክብደት',
   statusLabel: 'ሁኔታ',
@@ -271,6 +329,8 @@ const am: Dictionary = {
   eventsTitle: 'የቅርብ ጊዜ መረጃዎች',
   noEvents: 'እስካሁን መረጃ የለም።',
   estimateFrom: 'ከ {fee} ጀምሮ',
+  orderQrPrompt: 'ማድረሻ ሰራተኛው እቃውን ሲወስድ ይህን የQR ኮድ ያሳዩ፦ {tracking}',
+  qrCodeNotFound: 'ለዚህ ትዕዛዝ የQR ኮድ አልተገኘም።',
 
   trackAsk: 'የክትትል ቁጥሩን ይላኩ፣ ለምሳሌ /track ETH-2026-ABC123',
   trackNotFound: 'በ {number} ትዕዛዝ አልተገኘም።',
@@ -282,6 +342,7 @@ const am: Dictionary = {
   invalidWeight: 'ክብደቱን ከ 0.01 እስከ 5000 ኪሎግራም በቁጥር ይላኩ።',
   invalidName: 'ቢያንስ 2 ፊደሎች ይላኩ።',
   invalidItem: 'እቃውን ቢያንስ በ2 ፊደሎች ይግለጹ።',
+  createOrderChoose: 'ትዕዛዝዋን እንዴት መፍጠር ይፈልጋሉ?',
 };
 
 const DICTIONARIES: Record<Lang, Dictionary> = { en, am };

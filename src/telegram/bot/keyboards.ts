@@ -7,6 +7,7 @@ interface InlineButton {
   text: string;
   callback_data?: string;
   url?: string;
+  web_app?: { url: string };
 }
 
 interface KeyboardOrder {
@@ -19,12 +20,20 @@ export const REMOVE_KEYBOARD: ReplyMarkup = { remove_keyboard: true };
 export function mainMenuKeyboard(lang: Lang): ReplyMarkup {
   return {
     keyboard: [
-      [{ text: t(lang, 'btn.newOrder') }, { text: t(lang, 'btn.orders') }],
-      [{ text: t(lang, 'btn.track') }, { text: t(lang, 'btn.account') }],
-      [{ text: t(lang, 'btn.language') }, { text: t(lang, 'btn.help') }],
+      [
+        { text: t(lang, 'btn.newOrder') },
+        { text: t(lang, 'btn.orders') },
+        { text: t(lang, 'btn.track') },
+      ],
+      [
+        { text: t(lang, 'btn.account') },
+        { text: t(lang, 'btn.language') },
+        { text: t(lang, 'btn.help') },
+      ],
     ],
     resize_keyboard: true,
-    is_persistent: true,
+    is_persistent: false,
+    input_field_placeholder: t(lang, 'menuPlaceholder'),
   };
 }
 
@@ -87,6 +96,36 @@ export function confirmOrderKeyboard(lang: Lang): ReplyMarkup {
   };
 }
 
+export function skipStepKeyboard(lang: Lang): ReplyMarkup {
+  return {
+    keyboard: [
+      [{ text: t(lang, 'btn.skip') }, { text: t(lang, 'btn.cancel') }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+    is_persistent: false,
+  };
+}
+
+/** Keyboard asking sender to share live location, with Skip/Cancel fallback. */
+export function shareLocationKeyboard(lang: Lang): ReplyMarkup {
+  return {
+    keyboard: [
+      [
+        {
+          text: t(lang, 'btn.shareLocation'),
+          request_location: true,
+        },
+      ],
+      [{ text: t(lang, 'btn.skip') }, { text: t(lang, 'btn.cancel') }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+    is_persistent: false,
+    input_field_placeholder: t(lang, 'locationPlaceholder'),
+  };
+}
+
 export function ordersListKeyboard(
   orders: KeyboardOrder[],
   page: number,
@@ -95,8 +134,12 @@ export function ordersListKeyboard(
 ): ReplyMarkup {
   const rows: InlineButton[][] = orders.map((order) => [
     {
-      text: order.trackingNumber,
+      text: `📦 ${order.trackingNumber}`,
       callback_data: `${CALLBACK_DATA.orderView}:${order.id}`,
+    },
+    {
+      text: `📱 ${t(lang, 'btn.showQr')}`,
+      callback_data: `${CALLBACK_DATA.orderQr}:${order.id}`,
     },
   ]);
 
@@ -138,20 +181,52 @@ export function orderCardKeyboard(
     rows.push([{ text: t(lang, 'btn.openTracking'), url: trackingUrl }]);
   }
   rows.push([
+    { text: `📱 ${t(lang, 'btn.showQr')}`, callback_data: `${CALLBACK_DATA.orderQr}:${orderId}` },
     { text: t(lang, 'btn.refresh'), callback_data: `${CALLBACK_DATA.orderView}:${orderId}` },
+  ]);
+  rows.push([
     { text: t(lang, 'btn.orders'), callback_data: `${CALLBACK_DATA.ordersPage}:1` },
   ]);
   return { inline_keyboard: rows };
 }
 
-export function backToMenuKeyboard(lang: Lang): ReplyMarkup {
-  return {
-    inline_keyboard: [
-      [{ text: t(lang, 'btn.newOrder'), callback_data: CALLBACK_DATA.newOrder }],
-      [{ text: t(lang, 'btn.orders'), callback_data: `${CALLBACK_DATA.ordersPage}:1` }],
-      [{ text: t(lang, 'btn.help'), callback_data: CALLBACK_DATA.help }],
-    ],
-  };
+export function backToMenuKeyboard(lang: Lang, orderId?: string): ReplyMarkup {
+  const rows: InlineButton[][] = [];
+  if (orderId) {
+    rows.push([
+      { text: `📱 ${t(lang, 'btn.showQr')}`, callback_data: `${CALLBACK_DATA.orderQr}:${orderId}` },
+      { text: t(lang, 'btn.refresh'), callback_data: `${CALLBACK_DATA.orderView}:${orderId}` },
+    ]);
+  }
+  rows.push([
+    { text: t(lang, 'btn.newOrder'), callback_data: CALLBACK_DATA.newOrder },
+    { text: t(lang, 'btn.orders'), callback_data: `${CALLBACK_DATA.ordersPage}:1` },
+    { text: t(lang, 'btn.help'), callback_data: CALLBACK_DATA.help },
+  ]);
+  return { inline_keyboard: rows };
 }
 
 export const ORDERS_PER_PAGE = ORDERS_PAGE_SIZE;
+
+/**
+ * Inline keyboard shown when sender chooses to create a new order.
+ * Offers two alternatives: open the web form or use the step-by-step bot wizard.
+ */
+export function newOrderChoiceKeyboard(lang: Lang, webAppUrl: string): ReplyMarkup {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: t(lang, 'btn.openOrderForm'),
+          web_app: { url: webAppUrl },
+        },
+      ],
+      [
+        {
+          text: t(lang, 'btn.useWizard'),
+          callback_data: CALLBACK_DATA.startWizard,
+        },
+      ],
+    ],
+  };
+}

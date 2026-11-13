@@ -37,6 +37,9 @@ const COMMAND_ALIASES: Record<string, string> = {
   order: 'neworder',
   orders: 'orders',
   myorders: 'orders',
+  myorder: 'orders',
+  qr: 'qr',
+  qrcode: 'qr',
   track: 'track',
   language: 'language',
   cancel: 'cancel',
@@ -124,8 +127,11 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   // ══════════════════════════════════════════════════
   private async handleMessage(message: TelegramMessage): Promise<void> {
     const chatId = String(message.chat.id);
-    const text = message.text?.trim();
-    if (!text) return;
+    const text = (message.text ?? message.caption)?.trim() ?? '';
+    const hasMedia = !!message.photo?.length || !!message.document;
+    const hasLocation = !!message.location;
+
+    if (!text && !hasMedia && !hasLocation) return;
 
     const ctx = this.buildContext(chatId);
 
@@ -134,9 +140,18 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    // A wizard step consumes the text first, except for menu buttons.
+    // A location message during the sender_location step is handled by orders handler
+    if (hasLocation) {
+      const session = this.sessions.get(chatId);
+      if (session.step === 'order:sender_location') {
+        await this.orders.handleStep(ctx, '', message);
+      }
+      return;
+    }
+
+    // A wizard step consumes the text first, except for menu buttons (other than skip).
     const menuAction = resolveMenuAction(text);
-    if (menuAction) {
+    if (menuAction && menuAction !== 'btn.skip') {
       this.sessions.reset(chatId);
       await this.runMenuAction(ctx, menuAction);
       return;
@@ -144,7 +159,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     const consumed =
       (await this.account.handleStep(ctx, text)) ||
-      (await this.orders.handleStep(ctx, text));
+      (await this.orders.handleStep(ctx, text, message));
 
     if (consumed) return;
 
@@ -192,6 +207,13 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         return;
       case 'orders':
         await this.orders.listOrders(ctx, 1);
+        return;
+      case 'qr':
+        if (args[0]) {
+          await this.orders.showOrderQr(ctx, args[0]);
+          return;
+        }
+        await this.orders.showLatestOrderQr(ctx);
         return;
       case 'track':
         if (args[0]) {
@@ -294,6 +316,9 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       case CALLBACK_DATA.orderView:
         if (payload) await this.orders.showOrder(this.buildContext(chatId), payload);
         return;
+      case CALLBACK_DATA.orderQr:
+        if (payload) await this.orders.showOrderQr(this.buildContext(chatId), payload);
+        return;
       case CALLBACK_DATA.payParty:
         if (payload === 'SENDER' || payload === 'RECEIVER') {
           await this.orders.setPaymentParty(this.buildContext(chatId), payload);
@@ -301,6 +326,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         return;
       case CALLBACK_DATA.confirmOrder:
         await this.orders.confirmOrder(this.buildContext(chatId));
+        return;
+      case CALLBACK_DATA.startWizard:
+        this.sessions.reset(chatId);
+        await this.orders.startOrderWizard(this.buildContext(chatId));
         return;
       case CALLBACK_DATA.cancelFlow:
         this.sessions.reset(chatId);
@@ -325,6 +354,14 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
       lang,
       say: (text: string, keyboard?: Record<string, unknown>) =>
         this.api.sendMessage(chatId, text, keyboard),
+      sendPhoto: async (
+        photo: Buffer | string,
+        caption?: string,
+        keyboard?: Record<string, unknown>,
+      ) => {
+        const result = await this.api.sendPhoto(chatId, photo, caption, keyboard);
+        return result !== null;
+      },
     };
   }
 }

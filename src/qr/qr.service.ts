@@ -91,6 +91,61 @@ export class QrService {
     return { payload, signature, imageUrl: qrDataUrl };
   }
 
+  /**
+   * Generates a PNG buffer from a payload string.
+   */
+  async generateBufferFromPayload(payload: string): Promise<Buffer> {
+    return QRCode.toBuffer(payload, {
+      width: 450,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    });
+  }
+
+  /**
+   * Returns a PNG buffer for an order's QR code.
+   * If the order does not have a QR payload yet, it generates and persists one.
+   */
+  async getOrderQrBuffer(orderId: string): Promise<{
+    buffer: Buffer;
+    payload: string;
+    trackingNumber: string;
+  }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        trackingNumber: true,
+        qrCodePayload: true,
+        qrCodeImageUrl: true,
+      },
+    });
+
+    if (!order) {
+      throw new BadRequestException('Order not found');
+    }
+
+    let payload = order.qrCodePayload;
+
+    if (!payload) {
+      const generated = await this.generateForOrder(order.id, order.trackingNumber);
+      payload = generated.payload;
+    }
+
+    if (order.qrCodeImageUrl && order.qrCodeImageUrl.startsWith('data:image/')) {
+      const base64Data = order.qrCodeImageUrl.replace(/^data:image\/\w+;base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+      return { buffer, payload, trackingNumber: order.trackingNumber };
+    }
+
+    const buffer = await this.generateBufferFromPayload(payload);
+    return { buffer, payload, trackingNumber: order.trackingNumber };
+  }
+
   // ══════════════════════════════════════════════════
   // TRACKING TOKEN
   // ══════════════════════════════════════════════════

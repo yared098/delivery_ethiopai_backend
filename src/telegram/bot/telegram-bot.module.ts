@@ -2,7 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { OrdersModule } from '../../orders/orders.module';
+import { QrModule } from '../../qr/qr.module';
 import { TelegramModule } from '../telegram.module';
+import { TelegramWebAppModule } from '../webapp/telegram-webapp.module';
 import { TelegramBotService } from './telegram-bot.service';
 import { TelegramBotController } from './telegram-bot.controller';
 import { TelegramAccountHandler } from './handlers/account.handler';
@@ -14,7 +16,14 @@ import { TelegramTrackingHandler } from './handlers/tracking.handler';
  * goes through OrdersService (pricing, receiver links, SMS, notifications).
  */
 @Module({
-  imports: [ConfigModule, PrismaModule, TelegramModule, OrdersModule],
+  imports: [
+    ConfigModule,
+    PrismaModule,
+    TelegramModule,
+    TelegramWebAppModule,
+    OrdersModule,
+    QrModule,
+  ],
   controllers: [TelegramBotController],
   providers: [
     TelegramBotService,

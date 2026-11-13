@@ -23,6 +23,7 @@ import { CourierAppModule } from './courier-app/courier-app.module';
 import { PaymentsModule } from './payments/payments.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { TelegramBotModule } from './telegram/bot/telegram-bot.module';
+import { TelegramWebAppModule } from './telegram/webapp/telegram-webapp.module';
 import { AutoAssignModule } from './auto-assign/auto-assign.module';
 
 
@@ -51,6 +52,7 @@ import { AutoAssignModule } from './auto-assign/auto-assign.module';
     AutoAssignModule,
     TelegramModule,
     TelegramBotModule,
+    TelegramWebAppModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: JwtAuthGuard }],
 })

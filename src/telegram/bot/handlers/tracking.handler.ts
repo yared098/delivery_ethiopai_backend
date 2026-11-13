@@ -55,7 +55,7 @@ export class TelegramTrackingHandler {
 
     await ctx.say(
       isOwner ? formatOrderCard(view, ctx.lang) : formatTrackingCard(view, ctx.lang),
-      backToMenuKeyboard(ctx.lang),
+      backToMenuKeyboard(ctx.lang, isOwner ? order.id : undefined),
     );
   }
 }

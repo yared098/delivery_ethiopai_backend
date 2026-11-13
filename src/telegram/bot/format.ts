@@ -18,6 +18,8 @@ export interface OrderCardView {
   senderPhone: string;
   receiverName: string | null;
   receiverPhone: string;
+  itemDescription?: string | null;
+  photoUrl?: string | null;
   deliveryFee: number;
   totalWeightKg: number;
   trackingUrl: string | null;
@@ -66,9 +68,19 @@ export function formatOrderCard(order: OrderCardView, lang: Lang): string {
     `${t(lang, 'statusLabel')}: ${statusLabel(lang, order.status)}`,
     `${t(lang, 'senderLabel')}: ${order.senderName} (${toLocalPhone(order.senderPhone)})`,
     `${t(lang, 'receiverLabel')}: ${order.receiverName ?? '-'} (${toLocalPhone(order.receiverPhone)})`,
+  ];
+
+  if (order.itemDescription) {
+    lines.push(`${t(lang, 'itemLabel')}: ${order.itemDescription}`);
+  }
+  if (order.photoUrl) {
+    lines.push(`${t(lang, 'photoLabel')}: 📸 ${t(lang, 'photoAttached')}`);
+  }
+
+  lines.push(
     `${t(lang, 'weightLabel')}: ${order.totalWeightKg} kg`,
     `${t(lang, 'feeLabel')}: ${formatMoney(order.deliveryFee)}`,
-  ];
+  );
 
   if (order.courierName) {
     const phone = order.courierPhone ? ` (${toLocalPhone(order.courierPhone)})` : '';

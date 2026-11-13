@@ -6,4 +6,9 @@ export interface BotContext {
   chatId: string;
   lang: Lang;
   say(text: string, keyboard?: ReplyMarkup): Promise<void>;
+  sendPhoto(
+    photo: Buffer | string,
+    caption?: string,
+    keyboard?: ReplyMarkup,
+  ): Promise<boolean>;
 }
