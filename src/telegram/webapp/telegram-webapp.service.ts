@@ -96,8 +96,15 @@ export class TelegramWebAppService {
 
   /** Public URL base for the web app (falls back to PUBLIC_API_URL). */
   get webAppUrl(): string {
-    return (
+    const url = (
       this.config.get<string>('PUBLIC_API_URL') ?? 'http://localhost:3000'
     ).replace(/\/$/, '');
+    if (!url.startsWith('https://')) {
+      this.logger.warn(
+        `PUBLIC_API_URL is not HTTPS (${url}). Telegram Web Apps require HTTPS links — ` +
+          'the "Open order form" button will fail until you set PUBLIC_API_URL to an https:// URL.',
+      );
+    }
+    return url;
   }
 }
