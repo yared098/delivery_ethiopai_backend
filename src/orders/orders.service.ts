@@ -19,11 +19,17 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 import {
   AccountType,
+  EarningStatus,
   OrderStatus,
   PaymentParty,
   StaffRole,
 } from '@prisma/client';
 import { BranchResolverService } from './branch-resolver.service';
+import {
+  StaffScanInDto,
+  StaffScanOutDto,
+  StaffScanOutAction,
+} from './dto/staff-scan.dto';
 
 @Injectable()
 export class OrdersService {
@@ -1137,5 +1143,662 @@ export class OrdersService {
     });
 
     return { message: 'Order deleted', id };
+  }
+
+  // ══════════════════════════════════════════════════
+  // SCAN RESOLVER (helper for staff scan-in / scan-out)
+  // ══════════════════════════════════════════════════
+  async resolveOrderFromScan(input: {
+    code?: string;
+    orderId?: string;
+    trackingNumber?: string;
+    signature?: string;
+  }) {
+    const raw = (input.code ?? input.trackingNumber ?? input.orderId ?? '').trim();
+    if (!raw) {
+      throw new BadRequestException(
+        'QR code content, tracking number, or order ID is required',
+      );
+    }
+
+    let trackingNumber = input.trackingNumber;
+    let trackingToken: string | undefined;
+    let signature = input.signature;
+    let orderId = input.orderId;
+
+    // 1. Try URL parsing
+    if (
+      raw.startsWith('http://') ||
+      raw.startsWith('https://') ||
+      raw.startsWith('/')
+    ) {
+      try {
+        const url = new URL(raw, 'https://dummy.local');
+        if (!signature && url.searchParams.get('s')) {
+          signature = url.searchParams.get('s')!;
+        }
+
+        const pathname = url.pathname;
+        const qMatch = pathname.match(/\/q\/([^/?#]+)/i);
+        if (qMatch) {
+          trackingNumber = decodeURIComponent(qMatch[1]);
+        }
+
+        const tMatch = pathname.match(/\/(?:t|track)\/([^/?#]+)/i);
+        if (tMatch) {
+          trackingToken = decodeURIComponent(tMatch[1]);
+        }
+
+        const oMatch = pathname.match(/\/orders\/([^/?#]+)/i);
+        if (oMatch) {
+          orderId = decodeURIComponent(oMatch[1]);
+        }
+      } catch {
+        // Fall back to string parsing
+      }
+    }
+
+    // 2. Try JSON parsing
+    if (raw.startsWith('{') && raw.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.trackingNumber) trackingNumber = parsed.trackingNumber;
+        if (parsed.trackingToken) trackingToken = parsed.trackingToken;
+        if (parsed.id) orderId = parsed.id;
+        if (parsed.signature && !signature) signature = parsed.signature;
+      } catch {
+        // Ignore
+      }
+    }
+
+    // 3. Inline signature "ETH-2026-XXXX?s=abcdef"
+    if (!trackingNumber && raw.includes('?s=')) {
+      const [part1, part2] = raw.split('?s=');
+      trackingNumber = part1.trim();
+      if (!signature) signature = part2.trim();
+    }
+
+    // 4. Query DB for matching order
+    const candidates: any[] = [];
+    if (orderId) candidates.push({ id: orderId });
+    if (trackingNumber) candidates.push({ trackingNumber });
+    if (trackingToken) candidates.push({ trackingToken });
+
+    // Raw fallbacks
+    candidates.push({ trackingNumber: raw });
+    candidates.push({ id: raw });
+    candidates.push({ trackingToken: raw });
+    candidates.push({ qrCodePayload: raw });
+    candidates.push({ trackingUrl: raw });
+
+    const order = await this.prisma.order.findFirst({
+      where: {
+        OR: candidates,
+      },
+      include: {
+        originBranch: { select: { id: true, name: true, code: true } },
+        destBranch: { select: { id: true, name: true, code: true } },
+        courier: { select: { id: true, name: true, phone: true } },
+      },
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order not found for scanned code: ${raw}`);
+    }
+
+    // 5. Signature verification if signature was passed / in QR
+    if (signature) {
+      const isQrValid =
+        (order.qrCodeSignature && order.qrCodeSignature === signature) ||
+        this.qr.verifySignature(order.trackingNumber, signature, 'qr');
+      const isTrackingValid = order.trackingToken
+        ? this.qr.verifySignature(
+            order.trackingToken,
+            signature,
+            'tracking',
+          )
+        : false;
+
+      if (!isQrValid && !isTrackingValid) {
+        throw new BadRequestException('Invalid QR signature');
+      }
+    }
+
+    return order;
+  }
+
+  // ══════════════════════════════════════════════════
+  // STAFF SCAN-IN (Adama staff scan-in)
+  // ══════════════════════════════════════════════════
+  async staffScanIn(dto: StaffScanInDto, currentUser: any) {
+    const order = await this.resolveOrderFromScan({
+      code: dto.code,
+      signature: dto.signature,
+      orderId: dto.orderId,
+      trackingNumber: dto.trackingNumber,
+    });
+
+    // Check terminal statuses
+    if (order.status === OrderStatus.DELIVERED) {
+      throw new BadRequestException('Order has already been delivered');
+    }
+    if (
+      order.status === OrderStatus.CANCELLED ||
+      order.status === OrderStatus.RETURNED
+    ) {
+      throw new BadRequestException(
+        `Cannot scan in order: order is ${order.status.toLowerCase()}`,
+      );
+    }
+
+    // Fetch staff info with branch & region
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: currentUser.id },
+      include: { branch: true, region: true },
+    });
+    if (!staff) throw new NotFoundException('Staff not found');
+
+    const branchName =
+      staff.branch?.name ?? (staff.region ? `${staff.region.name} Warehouse` : 'Warehouse');
+    const cityName = staff.branch?.city ?? staff.region?.name ?? 'Branch';
+
+    // Determine if this is Origin Warehouse intake or Destination Warehouse arrival:
+    const isOriginIntake =
+      order.originBranchId === staff.branchId &&
+      (order.status === OrderStatus.DRAFT ||
+        order.status === OrderStatus.PENDING_PAYMENT ||
+        order.status === OrderStatus.PAID ||
+        order.status === OrderStatus.AWAITING_RECEIVER_LOCATION);
+
+    const nextStatus = isOriginIntake
+      ? (order.status === OrderStatus.DRAFT ? OrderStatus.PENDING_PAYMENT : order.status)
+      : OrderStatus.OUT_FOR_DELIVERY;
+
+    const eventNote =
+      dto.note ??
+      (isOriginIntake
+        ? `Received at ${branchName} (${cityName}) by ${staff.name} — ready for driver pickup`
+        : `Arrived at ${branchName} (${cityName}) and held by ${staff.name} — ready for customer pickup or dispatch`);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const res = await tx.order.update({
+        where: { id: order.id },
+        data: {
+          status: nextStatus,
+          // If destination warehouse scans and destBranchId wasn't set, assign it
+          ...(!isOriginIntake && staff.branchId && !order.destBranchId
+            ? { destBranchId: staff.branchId }
+            : {}),
+          ...(dto.lat != null ? { lastCourierLat: dto.lat } : {}),
+          ...(dto.lng != null ? { lastCourierLng: dto.lng } : {}),
+          ...(dto.lat != null || dto.lng != null
+            ? { lastTrackedAt: new Date() }
+            : {}),
+        },
+        include: {
+          originBranch: { select: { id: true, name: true, code: true } },
+          destBranch: { select: { id: true, name: true, code: true } },
+          courier: { select: { id: true, name: true, phone: true } },
+        },
+      });
+
+      await tx.orderEvent.create({
+        data: {
+          orderId: order.id,
+          status: nextStatus,
+          note: eventNote,
+          actorType: AccountType.STAFF,
+          actorId: staff.id,
+          actorName: staff.name,
+          location: `${branchName} (${cityName})`,
+          lat: dto.lat ?? staff.branch?.lat ?? undefined,
+          lng: dto.lng ?? staff.branch?.lng ?? undefined,
+          isPublic: true,
+        },
+      });
+
+      return res;
+    });
+
+    this.trackingWs.broadcastStatusChange(order.id, {
+      status: nextStatus,
+      note: eventNote,
+      location: `${branchName} (${cityName})`,
+      lat: dto.lat ?? staff.branch?.lat ?? undefined,
+      lng: dto.lng ?? staff.branch?.lng ?? undefined,
+      timestamp: new Date().toISOString(),
+    });
+
+    // ──────────────────────────────────────────────────
+    // NOTIFICATIONS (Origin Intake vs Destination Arrival)
+    // ──────────────────────────────────────────────────
+    if (isOriginIntake) {
+      // Origin Warehouse Intake: Notify sender
+      void this.sms
+        .sendCustomSms(
+          order.senderPhone,
+          `Your package ${order.trackingNumber} has been received at ${branchName}. We will dispatch it shortly.`,
+        )
+        .catch(() => {});
+
+      void this.notifications.notifyCustomToCustomer(order.senderId, {
+        title: `Package Received at ${branchName} 📦`,
+        body: `Your package #${order.trackingNumber} was received at ${branchName}.`,
+        data: {
+          type: 'ORDER_AT_WAREHOUSE',
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+          branchName,
+        },
+      });
+    } else {
+      // Destination Warehouse Arrival (e.g. Adama staff scans in from AA driver):
+      // 1. Notify Receiver via SMS + Push + Telegram so they know to come pick it up
+      void this.sms
+        .sendArrivedAtBranch(
+          order.receiverPhone,
+          order.trackingNumber,
+          branchName,
+          true,
+        )
+        .catch(() => {});
+
+      void this.notifications.notifyCustomToCustomer(order.receiverId, {
+        title: `Package Arrived in ${cityName} 📍`,
+        body: `Your package #${order.trackingNumber} has arrived at ${branchName}. It is ready for pickup at our office!`,
+        data: {
+          type: 'ORDER_ARRIVED_BRANCH',
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+          branchName,
+          city: cityName,
+        },
+      });
+
+      // 2. Notify Sender via SMS + Push + Telegram
+      void this.sms
+        .sendArrivedAtBranch(
+          order.senderPhone,
+          order.trackingNumber,
+          branchName,
+          false,
+        )
+        .catch(() => {});
+
+      void this.notifications.notifyCustomToCustomer(order.senderId, {
+        title: `Package Arrived at Destination 📍`,
+        body: `Your package #${order.trackingNumber} has arrived at ${branchName} (${cityName}) and is ready for pickup.`,
+        data: {
+          type: 'ORDER_ARRIVED_BRANCH',
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+          branchName,
+          city: cityName,
+        },
+      });
+    }
+
+    return {
+      success: true,
+      action: isOriginIntake ? 'origin_intake' : 'destination_arrival',
+      status: nextStatus,
+      warehouse: branchName,
+      city: cityName,
+      staffName: staff.name,
+      order: {
+        id: updated.id,
+        trackingNumber: updated.trackingNumber,
+        status: updated.status,
+        originBranch: updated.originBranch?.name,
+        destBranch: updated.destBranch?.name,
+        courier: updated.courier?.name,
+        receiverName: updated.receiverName,
+        receiverPhone: updated.receiverPhone,
+        senderName: updated.senderName,
+        senderPhone: updated.senderPhone,
+      },
+      message: isOriginIntake
+        ? `Order ${order.trackingNumber} received at ${branchName} by ${staff.name}`
+        : `Order ${order.trackingNumber} arrived at ${branchName} (${cityName}). Notifications sent to receiver and sender.`,
+    };
+  }
+
+  // ══════════════════════════════════════════════════
+  // STAFF SCAN-OUT (A: Handover to Receiver, B: Dispatch to Courier)
+  // ══════════════════════════════════════════════════
+  async staffScanOut(dto: StaffScanOutDto, currentUser: any) {
+    const order = await this.resolveOrderFromScan({
+      code: dto.code,
+      signature: dto.signature,
+      orderId: dto.orderId,
+      trackingNumber: dto.trackingNumber,
+    });
+
+    if (order.status === OrderStatus.DELIVERED) {
+      throw new BadRequestException('Order has already been delivered');
+    }
+    if (
+      order.status === OrderStatus.CANCELLED ||
+      order.status === OrderStatus.RETURNED
+    ) {
+      throw new BadRequestException(
+        `Cannot scan out order: order is ${order.status.toLowerCase()}`,
+      );
+    }
+
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: currentUser.id },
+      include: { branch: true, region: true },
+    });
+    if (!staff) throw new NotFoundException('Staff not found');
+
+    const branchName =
+      staff.branch?.name ?? (staff.region ? `${staff.region.name} Warehouse` : 'Warehouse');
+    const cityName = staff.branch?.city ?? staff.region?.name ?? 'Branch';
+    const action =
+      dto.action ??
+      (dto.courierId
+        ? StaffScanOutAction.DISPATCH
+        : StaffScanOutAction.HANDOVER);
+
+    // ──────────────────────────────────────────────────
+    // A) RECEIVER WALKS IN → HANDOVER
+    // ──────────────────────────────────────────────────
+    if (action === StaffScanOutAction.HANDOVER) {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const res = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            status: OrderStatus.DELIVERED,
+            deliveredAt: new Date(),
+            receiverConfirmed: true,
+            ...(dto.lat != null ? { lastCourierLat: dto.lat } : {}),
+            ...(dto.lng != null ? { lastCourierLng: dto.lng } : {}),
+            ...(dto.lat != null || dto.lng != null
+              ? { lastTrackedAt: new Date() }
+              : {}),
+          },
+          include: {
+            originBranch: { select: { id: true, name: true, code: true } },
+            destBranch: { select: { id: true, name: true, code: true } },
+            courier: { select: { id: true, name: true, phone: true } },
+          },
+        });
+
+        const eventNote =
+          dto.note ??
+          `Handed over to receiver at ${branchName} (${cityName}) by ${staff.name}`;
+        await tx.orderEvent.create({
+          data: {
+            orderId: order.id,
+            status: OrderStatus.DELIVERED,
+            note: eventNote,
+            actorType: AccountType.STAFF,
+            actorId: staff.id,
+            actorName: staff.name,
+            location: `${branchName} (${cityName})`,
+            lat: dto.lat ?? staff.branch?.lat ?? undefined,
+            lng: dto.lng ?? staff.branch?.lng ?? undefined,
+            isPublic: true,
+          },
+        });
+
+        // AA courier earning → RELEASED
+        if (order.courierEarning > 0) {
+          const pendingEarnings = await tx.courierEarning.findMany({
+            where: { orderId: order.id, status: EarningStatus.PENDING },
+          });
+
+          if (pendingEarnings.length > 0) {
+            await tx.courierEarning.updateMany({
+              where: { orderId: order.id, status: EarningStatus.PENDING },
+              data: {
+                status: EarningStatus.RELEASED,
+                releasedAt: new Date(),
+              },
+            });
+          } else if (order.courierId) {
+            await tx.courierEarning.create({
+              data: {
+                courierId: order.courierId,
+                orderId: order.id,
+                amount: order.courierEarning,
+                currency: 'ETB',
+                type: 'DELIVERY',
+                status: EarningStatus.RELEASED,
+                releasedAt: new Date(),
+              },
+            });
+          }
+        }
+
+        return res;
+      });
+
+      this.trackingWs.broadcastOrderEnd(order.id, {
+        outcome: 'DELIVERED',
+        message: `Order delivered to receiver at ${branchName}`,
+      });
+
+      // ──────────────────────────────────────────────────
+      // NOTIFICATIONS ON HANDOVER (Delivered)
+      // ──────────────────────────────────────────────────
+      // 1. Notify Sender that receiver collected the parcel
+      void this.sms
+        .sendHandedOver(
+          order.senderPhone,
+          order.trackingNumber,
+          branchName,
+          false,
+        )
+        .catch(() => {});
+
+      void this.notifications.notifyCustomToCustomer(order.senderId, {
+        title: `Package Delivered 🎉`,
+        body: `Your package #${order.trackingNumber} was collected by the receiver at ${branchName}.`,
+        data: {
+          type: 'ORDER_DELIVERED',
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+          branchName,
+        },
+      });
+
+      // 2. Notify Receiver confirming pickup
+      void this.sms
+        .sendHandedOver(
+          order.receiverPhone,
+          order.trackingNumber,
+          branchName,
+          true,
+        )
+        .catch(() => {});
+
+      void this.notifications.notifyCustomToCustomer(order.receiverId, {
+        title: `Package Collected 🎉`,
+        body: `Package #${order.trackingNumber} has been handed over to you at ${branchName}. Thank you!`,
+        data: {
+          type: 'ORDER_DELIVERED',
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+          branchName,
+        },
+      });
+
+      return {
+        success: true,
+        action: StaffScanOutAction.HANDOVER,
+        status: OrderStatus.DELIVERED,
+        warehouse: branchName,
+        city: cityName,
+        staffName: staff.name,
+        order: {
+          id: updated.id,
+          trackingNumber: updated.trackingNumber,
+          status: updated.status,
+          deliveredAt: updated.deliveredAt,
+          originBranch: updated.originBranch?.name,
+          destBranch: updated.destBranch?.name,
+          receiverName: updated.receiverName,
+          receiverPhone: updated.receiverPhone,
+          senderName: updated.senderName,
+          senderPhone: updated.senderPhone,
+        },
+        message: `Order ${order.trackingNumber} handed over to receiver at ${branchName} by ${staff.name}`,
+      };
+    }
+
+    // ──────────────────────────────────────────────────
+    // B) BRANCH CALLS LAST-MILE COURIER → DISPATCH
+    // ──────────────────────────────────────────────────
+    if (action === StaffScanOutAction.DISPATCH) {
+      if (!dto.courierId) {
+        throw new BadRequestException(
+          'courierId is required for dispatch scan-out',
+        );
+      }
+
+      const courier = await this.prisma.courier.findUnique({
+        where: { id: dto.courierId },
+      });
+      if (!courier) {
+        throw new NotFoundException(`Courier ${dto.courierId} not found`);
+      }
+
+      const previousCourierId = order.courierId;
+      const isReassigned =
+        previousCourierId != null && previousCourierId !== courier.id;
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const res = await tx.order.update({
+          where: { id: order.id },
+          data: {
+            courierId: courier.id,
+            status: OrderStatus.OUT_FOR_DELIVERY,
+            assignedAt: new Date(),
+          },
+          include: {
+            originBranch: { select: { id: true, name: true, code: true } },
+            destBranch: { select: { id: true, name: true, code: true } },
+            courier: { select: { id: true, name: true, phone: true } },
+          },
+        });
+
+        const eventNote =
+          dto.note ??
+          `Dispatched to last-mile courier ${courier.name} at ${branchName} (${cityName}) by ${staff.name}`;
+        await tx.orderEvent.create({
+          data: {
+            orderId: order.id,
+            status: OrderStatus.OUT_FOR_DELIVERY,
+            note: eventNote,
+            actorType: AccountType.STAFF,
+            actorId: staff.id,
+            actorName: staff.name,
+            location: `${branchName} (${cityName})`,
+            lat: dto.lat ?? staff.branch?.lat ?? undefined,
+            lng: dto.lng ?? staff.branch?.lng ?? undefined,
+            isPublic: true,
+          },
+        });
+
+        // AA courier earning → CANCELLED
+        if (isReassigned && previousCourierId) {
+          await tx.courierEarning.updateMany({
+            where: {
+              orderId: order.id,
+              courierId: previousCourierId,
+              status: EarningStatus.PENDING,
+            },
+            data: { status: EarningStatus.CANCELLED },
+          });
+        }
+
+        // new courier earning → PENDING
+        if (order.courierEarning > 0) {
+          const myEarning = await tx.courierEarning.findFirst({
+            where: { orderId: order.id, courierId: courier.id },
+          });
+
+          if (!myEarning) {
+            await tx.courierEarning.create({
+              data: {
+                courierId: courier.id,
+                orderId: order.id,
+                amount: order.courierEarning,
+                currency: 'ETB',
+                type: 'DELIVERY',
+                status: EarningStatus.PENDING,
+              },
+            });
+          } else if (myEarning.status === EarningStatus.CANCELLED) {
+            await tx.courierEarning.update({
+              where: { id: myEarning.id },
+              data: { status: EarningStatus.PENDING },
+            });
+          }
+        }
+
+        return res;
+      });
+
+      this.trackingWs.broadcastStatusChange(order.id, {
+        status: OrderStatus.OUT_FOR_DELIVERY,
+        note: `Dispatched to courier ${courier.name} at ${branchName}`,
+        location: `${branchName} (${cityName})`,
+        lat: dto.lat ?? staff.branch?.lat ?? undefined,
+        lng: dto.lng ?? staff.branch?.lng ?? undefined,
+        timestamp: new Date().toISOString(),
+      });
+
+      // ──────────────────────────────────────────────────
+      // NOTIFICATIONS ON DISPATCH
+      // ──────────────────────────────────────────────────
+      void this.sms
+        .sendCourierAssigned(
+          order.receiverPhone,
+          order.trackingNumber,
+          courier.name,
+          courier.phone,
+        )
+        .catch(() => {});
+
+      void this.notifications.notifyCustomToCustomer(order.receiverId, {
+        title: `Out for Delivery 🛵`,
+        body: `Courier ${courier.name} (${courier.phone}) has been dispatched with your package #${order.trackingNumber}.`,
+        data: {
+          type: 'COURIER_ASSIGNED',
+          orderId: order.id,
+          trackingNumber: order.trackingNumber,
+          courierName: courier.name,
+          courierPhone: courier.phone,
+        },
+      });
+
+      return {
+        success: true,
+        action: StaffScanOutAction.DISPATCH,
+        status: OrderStatus.OUT_FOR_DELIVERY,
+        warehouse: branchName,
+        city: cityName,
+        staffName: staff.name,
+        order: {
+          id: updated.id,
+          trackingNumber: updated.trackingNumber,
+          status: updated.status,
+          originBranch: updated.originBranch?.name,
+          destBranch: updated.destBranch?.name,
+          courier: { id: courier.id, name: courier.name, phone: courier.phone },
+          receiverName: updated.receiverName,
+          receiverPhone: updated.receiverPhone,
+          senderName: updated.senderName,
+          senderPhone: updated.senderPhone,
+        },
+        courier: { id: courier.id, name: courier.name, phone: courier.phone },
+        message: `Order ${order.trackingNumber} dispatched to last-mile courier ${courier.name}`,
+      };
+    }
+
+    throw new BadRequestException(`Unknown scan-out action: ${action}`);
   }
 }

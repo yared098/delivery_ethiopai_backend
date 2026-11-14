@@ -289,6 +289,24 @@ export class NotificationsService {
     });
   }
 
+  /** Send custom push, in-app, and telegram notification to a customer */
+  async notifyCustomToCustomer(
+    customerId: string | null | undefined,
+    opts: { title: string; body: string; data?: Record<string, string> },
+  ) {
+    if (!customerId) return { success: false, error: 'No customerId' };
+    try {
+      await this.sendToAccount('CUSTOMER', customerId, opts);
+      void this.telegram
+        .notifyCustomerId(customerId, `🔔 ${opts.title}\n${opts.body}`)
+        .catch(() => {});
+      return { success: true };
+    } catch (err: any) {
+      this.logger.error(`Failed to notify customer ${customerId}: ${err.message}`);
+      return { success: false, error: err.message };
+    }
+  }
+
   /** Order status change → sender, receiver, and assigned courier */
   async notifyOrderStatus(order: OrderNotifyPayload) {
     const template = ORDER_STATUS_TEMPLATES[order.status];

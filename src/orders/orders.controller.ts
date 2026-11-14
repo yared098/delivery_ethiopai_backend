@@ -15,6 +15,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { SendReceiverLinkDto } from './dto/send-receiver-link.dto';
+import { StaffScanInDto, StaffScanOutDto } from './dto/staff-scan.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { StaffRoles } from '../common/decorators/staff-roles.decorator';
@@ -34,10 +35,26 @@ class AssignCourierDto {
   courierId: string;
 }
 
-@Controller('admin/orders')
+@Controller(['admin/orders', 'orders'])
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrdersController {
   constructor(private orders: OrdersService) {}
+
+  // ══════════════════════════════════════════════════
+  // STAFF SCAN IN / SCAN OUT
+  // ══════════════════════════════════════════════════
+
+  @Post('scan-in')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+  scanIn(@Body() dto: StaffScanInDto, @CurrentUser() user: any) {
+    return this.orders.staffScanIn(dto, user);
+  }
+
+  @Post('scan-out')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+  scanOut(@Body() dto: StaffScanOutDto, @CurrentUser() user: any) {
+    return this.orders.staffScanOut(dto, user);
+  }
 
   // ══════════════════════════════════════════════════
   // CRUD

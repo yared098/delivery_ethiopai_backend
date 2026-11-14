@@ -196,4 +196,35 @@ export class AfroMessageService {
       `Package ${trackingNumber} has been delivered successfully. Thank you!`,
     );
   }
+
+  /** Package arrived at warehouse / branch (sent to receiver or sender) */
+  async sendArrivedAtBranch(
+    phone: string,
+    trackingNumber: string,
+    branchName: string,
+    isReceiver = true,
+  ): Promise<boolean> {
+    const text = isReceiver
+      ? `Your package ${trackingNumber} has arrived at ${branchName}. It is ready for pickup at our office!`
+      : `Your package ${trackingNumber} has arrived at ${branchName}.`;
+    return this.send(phone, text);
+  }
+
+  /** Package handed over to receiver at warehouse / branch */
+  async sendHandedOver(
+    phone: string,
+    trackingNumber: string,
+    branchName: string,
+    isReceiver = false,
+  ): Promise<boolean> {
+    const text = isReceiver
+      ? `Package ${trackingNumber} has been collected at ${branchName}. Thank you for using Deliver Ethiopia!`
+      : `Your package ${trackingNumber} was successfully collected by the receiver at ${branchName}. Delivery complete!`;
+    return this.send(phone, text);
+  }
+
+  /** General purpose custom SMS send */
+  async sendCustomSms(phone: string, message: string): Promise<boolean> {
+    return this.send(phone, message);
+  }
 }
