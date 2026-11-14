@@ -22,6 +22,11 @@ import { StaffRoles } from '../common/decorators/staff-roles.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { StaffRole } from '@prisma/client';
 
+import {
+  WarehouseQueryDto,
+  WarehouseHistoryQueryDto,
+} from './dto/warehouse-query.dto';
+
 class LocationDto {
   @IsNumber()
   lat: number;
@@ -43,6 +48,12 @@ export class OrdersController {
   // ══════════════════════════════════════════════════
   // STAFF SCAN IN / SCAN OUT
   // ══════════════════════════════════════════════════
+
+  @Post('scan-lookup')
+  @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+  scanLookup(@Body() dto: StaffScanInDto, @CurrentUser() user: any) {
+    return this.orders.staffScanLookup(dto, user);
+  }
 
   @Post('scan-in')
   @StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
@@ -161,5 +172,27 @@ export class OrdersController {
   remove(@Param('id') id: string, @CurrentUser() user: any) {
     return this.orders.remove(id, user);
   }
+
+  // ══════════════════════════════════════════════════
+// WAREHOUSE MANAGEMENT
+// ══════════════════════════════════════════════════
+
+@Get('warehouse/inventory')
+@StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+warehouseInventory(@Query() q: WarehouseQueryDto, @CurrentUser() user: any) {
+  return this.orders.warehouseInventory(q, user);
+}
+
+@Get('warehouse/history')
+@StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+warehouseHistory(@Query() q: WarehouseHistoryQueryDto, @CurrentUser() user: any) {
+  return this.orders.warehouseHistory(q, user);
+}
+
+@Get('warehouse/stats')
+@StaffRoles(StaffRole.SUPER_ADMIN, StaffRole.REGIONAL_ADMIN, StaffRole.BRANCH_MANAGER)
+warehouseStats(@CurrentUser() user: any) {
+  return this.orders.warehouseStats(user);
+}
 
 }

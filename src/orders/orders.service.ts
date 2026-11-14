@@ -16,7 +16,10 @@ import { SendReceiverLinkDto } from './dto/send-receiver-link.dto';
 import { QrService } from '../qr/qr.service';
 import { AfroMessageService } from '../integrations/afromessage/afromessage.service';
 import { NotificationsService } from '../notifications/notifications.service';
-
+import {
+  WarehouseQueryDto,
+  WarehouseHistoryQueryDto,
+} from './dto/warehouse-query.dto';
 import {
   AccountType,
   EarningStatus,
@@ -46,17 +49,43 @@ export class OrdersService {
   ) {}
 
   private orderScope(currentUser: any) {
-    if (currentUser.role === StaffRole.REGIONAL_ADMIN && currentUser.regionId) {
-      return { originBranch: { regionId: currentUser.regionId } };
+    if (currentUser.role === StaffRole.SUPER_ADMIN) {
+      return {};
     }
 
-    if (currentUser.role === StaffRole.BRANCH_MANAGER && currentUser.branchId) {
-      return { originBranchId: currentUser.branchId };
+    if (currentUser.role === StaffRole.REGIONAL_ADMIN) {
+      if (currentUser.regionId) {
+        return {
+          OR: [
+            { originBranch: { regionId: currentUser.regionId } },
+            { destBranch: { regionId: currentUser.regionId } },
+          ],
+        };
+      }
+      return {};
     }
 
-    return currentUser.role === StaffRole.SUPER_ADMIN
-      ? {}
-      : { id: '__no_access__' };
+    if (currentUser.role === StaffRole.BRANCH_MANAGER) {
+      if (currentUser.branchId) {
+        return {
+          OR: [
+            { originBranchId: currentUser.branchId },
+            { destBranchId: currentUser.branchId },
+          ],
+        };
+      }
+      if (currentUser.regionId) {
+        return {
+          OR: [
+            { originBranch: { regionId: currentUser.regionId } },
+            { destBranch: { regionId: currentUser.regionId } },
+          ],
+        };
+      }
+      return {};
+    }
+
+    return { id: '__no_access__' };
   }
 
   private async assertOrderAccess(orderId: string, currentUser: any) {
@@ -575,6 +604,7 @@ export class OrdersService {
             },
           },
           originBranch: { select: { id: true, name: true, code: true } },
+          destBranch: { select: { id: true, name: true, code: true } },
           _count: { select: { items: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -1268,6 +1298,37 @@ export class OrdersService {
   }
 
   // ══════════════════════════════════════════════════
+  // STAFF SCAN-LOOKUP (Preview order details upon QR scan)
+  // ══════════════════════════════════════════════════
+  async staffScanLookup(dto: StaffScanInDto, currentUser: any) {
+    const order = await this.resolveOrderFromScan({
+      code: dto.code,
+      signature: dto.signature,
+      orderId: dto.orderId,
+      trackingNumber: dto.trackingNumber,
+    });
+
+    const fullOrder = await this.prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        items: true,
+        sender: { select: { id: true, name: true, phone: true } },
+        receiver: { select: { id: true, name: true, phone: true } },
+        courier: { select: { id: true, name: true, phone: true } },
+        originBranch: { select: { id: true, name: true, code: true } },
+        destBranch: { select: { id: true, name: true, code: true } },
+      },
+    });
+
+    if (!fullOrder) throw new NotFoundException('Order not found');
+
+    return {
+      success: true,
+      order: fullOrder,
+    };
+  }
+
+  // ══════════════════════════════════════════════════
   // STAFF SCAN-IN (Adama staff scan-in)
   // ══════════════════════════════════════════════════
   async staffScanIn(dto: StaffScanInDto, currentUser: any) {
@@ -1320,14 +1381,27 @@ export class OrdersService {
         ? `Received at ${branchName} (${cityName}) by ${staff.name} — ready for driver pickup`
         : `Arrived at ${branchName} (${cityName}) and held by ${staff.name} — ready for customer pickup or dispatch`);
 
+    // If destination warehouse scans and destBranchId wasn't set, assign it
+    let targetDestBranchId = order.destBranchId;
+    if (!isOriginIntake && !targetDestBranchId) {
+      if (staff.branchId) {
+        targetDestBranchId = staff.branchId;
+      } else if (staff.regionId) {
+        const regionalBranch = await this.prisma.branch.findFirst({
+          where: { regionId: staff.regionId },
+          select: { id: true },
+        });
+        if (regionalBranch) targetDestBranchId = regionalBranch.id;
+      }
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const res = await tx.order.update({
         where: { id: order.id },
         data: {
           status: nextStatus,
-          // If destination warehouse scans and destBranchId wasn't set, assign it
-          ...(!isOriginIntake && staff.branchId && !order.destBranchId
-            ? { destBranchId: staff.branchId }
+          ...(!isOriginIntake && targetDestBranchId
+            ? { destBranchId: targetDestBranchId }
             : {}),
           ...(dto.lat != null ? { lastCourierLat: dto.lat } : {}),
           ...(dto.lng != null ? { lastCourierLng: dto.lng } : {}),
@@ -1336,6 +1410,9 @@ export class OrdersService {
             : {}),
         },
         include: {
+          items: true,
+          sender: { select: { id: true, name: true, phone: true } },
+          receiver: { select: { id: true, name: true, phone: true } },
           originBranch: { select: { id: true, name: true, code: true } },
           destBranch: { select: { id: true, name: true, code: true } },
           courier: { select: { id: true, name: true, phone: true } },
@@ -1463,6 +1540,451 @@ export class OrdersService {
     };
   }
 
+
+// ══════════════════════════════════════════════════
+// WAREHOUSE — shared scope helper
+// ══════════════════════════════════════════════════
+private async warehouseScope(query: WarehouseQueryDto, currentUser: any) {
+  const staff = await this.prisma.staff.findUnique({
+    where: { id: currentUser.id },
+    select: { id: true, name: true, branchId: true, regionId: true, role: true },
+  });
+  if (!staff) throw new NotFoundException('Staff not found');
+
+  // Explicit branch filter (only honored if it falls within the actor's scope)
+  if (query.branchId) {
+    if (staff.role === StaffRole.BRANCH_MANAGER && query.branchId !== staff.branchId) {
+      throw new ForbiddenException('You can only view your own branch');
+    }
+    return {
+      staff,
+      branchFilter: { destBranchId: query.branchId },
+      label: 'branch',
+    };
+  }
+
+  if (staff.role === StaffRole.SUPER_ADMIN) {
+    return { staff, branchFilter: {}, label: 'all' };
+  }
+  if (staff.role === StaffRole.REGIONAL_ADMIN) {
+    if (!staff.regionId) {
+      throw new ForbiddenException('Regional admin has no region assigned');
+    }
+    return {
+      staff,
+      branchFilter: { destBranch: { regionId: staff.regionId } },
+      label: 'region',
+    };
+  }
+  if (staff.role === StaffRole.BRANCH_MANAGER) {
+    if (!staff.branchId) {
+      throw new ForbiddenException('Branch manager has no branch assigned');
+    }
+    return {
+      staff,
+      branchFilter: { destBranchId: staff.branchId },
+      label: 'branch',
+    };
+  }
+
+  throw new ForbiddenException('You are not allowed to access warehouse inventory');
+}
+
+// ══════════════════════════════════════════════════
+// WAREHOUSE — Inventory
+// ══════════════════════════════════════════════════
+async warehouseInventory(query: WarehouseQueryDto, currentUser: any) {
+  const staff = await this.prisma.staff.findUnique({
+    where: { id: currentUser.id },
+    select: { id: true, name: true, branchId: true, regionId: true, role: true },
+  });
+  if (!staff) throw new NotFoundException('Staff not found');
+
+  // ── 1. Scope filter: include BOTH origin and dest ──
+  let scopeFilter: any;
+  if (query.branchId) {
+    if (
+      staff.role === StaffRole.BRANCH_MANAGER &&
+      query.branchId !== staff.branchId
+    ) {
+      throw new ForbiddenException('You can only view your own branch');
+    }
+    scopeFilter = {
+      OR: [
+        { destBranchId: query.branchId },
+        { originBranchId: query.branchId },
+      ],
+    };
+  } else if (staff.role === StaffRole.SUPER_ADMIN) {
+    scopeFilter = {};
+  } else if (staff.role === StaffRole.REGIONAL_ADMIN) {
+    if (!staff.regionId) {
+      throw new ForbiddenException('Regional admin has no region assigned');
+    }
+    scopeFilter = {
+      OR: [
+        { destBranch: { regionId: staff.regionId } },
+        { originBranch: { regionId: staff.regionId } },
+      ],
+    };
+  } else if (staff.role === StaffRole.BRANCH_MANAGER) {
+    if (!staff.branchId) {
+      throw new ForbiddenException('Branch manager has no branch assigned');
+    }
+    scopeFilter = {
+      OR: [
+        { destBranchId: staff.branchId },
+        { originBranchId: staff.branchId },
+      ],
+    };
+  } else {
+    throw new ForbiddenException('You are not allowed to access warehouse inventory');
+  }
+
+  // ── 2. Where clause ──
+  const where: any = {
+    AND: [
+      scopeFilter,
+      {
+        status: {
+          notIn: [
+            OrderStatus.CANCELLED,
+            OrderStatus.RETURNED,
+            OrderStatus.FAILED,
+          ],
+        },
+      },
+    ],
+  };
+
+  if (query.search) {
+    where.AND.push({
+      OR: [
+        { trackingNumber: { contains: query.search, mode: 'insensitive' } },
+        { senderName:     { contains: query.search, mode: 'insensitive' } },
+        { receiverName:   { contains: query.search, mode: 'insensitive' } },
+        { receiverPhone:  { contains: query.search } },
+        { senderPhone:    { contains: query.search } },
+      ],
+    });
+  }
+
+  const raw = await this.prisma.order.findMany({
+    where,
+    take: 500,
+    orderBy: { createdAt: 'desc' },
+    include: {
+      items: { select: { id: true, description: true, quantity: true } },
+      originBranch: { select: { id: true, name: true, code: true, city: true } },
+      destBranch:   { select: { id: true, name: true, code: true, city: true } },
+      courier:      { select: { id: true, name: true, phone: true } },
+      events: {
+        where: { actorType: 'STAFF' },
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: {
+          id: true, status: true, note: true,
+          actorName: true, actorId: true, createdAt: true,
+          location: true,
+        },
+      },
+    },
+  });
+
+  // ── 3. Branch-aware classifier ──
+  const myBranchId = staff.branchId;
+  const isSuperAdmin = staff.role === StaffRole.SUPER_ADMIN;
+
+  const postPickupStatuses: OrderStatus[] = [
+    OrderStatus.PICKED_UP,
+    OrderStatus.IN_TRANSIT,
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.DELIVERED,
+  ];
+
+  const classify = (order: any, lastEvent: any): string => {
+    const note = lastEvent?.note ?? '';
+
+    const isOriginIntake = note.startsWith('Received at');
+    const isDestArrival  = note.startsWith('Arrived at');
+    const isDispatched   = note.startsWith('Dispatched');
+    const isHandedOver   = note.startsWith('Handed over');
+
+    const hasLeftOrigin = postPickupStatuses.includes(order.status);
+
+    if (isOriginIntake) {
+      if (isSuperAdmin) return hasLeftOrigin ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+      const isMyOrigin = order.originBranchId === myBranchId;
+      if (!isMyOrigin) return 'NOT_MINE';
+      return hasLeftOrigin ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+    }
+
+    if (isDestArrival) {
+      if (isSuperAdmin) return 'IN_WAREHOUSE';
+      return order.destBranchId === myBranchId ? 'IN_WAREHOUSE' : 'NOT_MINE';
+    }
+
+    if (isDispatched || isHandedOver) {
+      if (isSuperAdmin) return 'LEFT_WAREHOUSE';
+      return order.destBranchId === myBranchId ? 'LEFT_WAREHOUSE' : 'NOT_MINE';
+    }
+
+    // No scan-in/out yet — fall back to "created at my branch, not picked up"
+    if (isSuperAdmin) return 'NOT_MINE';
+    const isMyOrigin = order.originBranchId === myBranchId;
+    return isMyOrigin && !hasLeftOrigin ? 'IN_WAREHOUSE' : 'NOT_MINE';
+  };
+
+  const classified = raw
+    .map((o) => {
+      const lastStaffEvent = o.events[0] ?? null;
+      return {
+        ...o,
+        events: undefined,
+        warehouseState: classify(o, lastStaffEvent),
+        lastStaffEvent,
+      };
+    })
+    .filter((o) => o.warehouseState !== 'NOT_MINE')
+    .sort((a, b) => {
+      const aT = a.lastStaffEvent?.createdAt?.getTime() ?? a.createdAt.getTime();
+      const bT = b.lastStaffEvent?.createdAt?.getTime() ?? b.createdAt.getTime();
+      return bT - aT;
+    });
+
+  const filtered =
+    query.state === 'in'  ? classified.filter((o) => o.warehouseState === 'IN_WAREHOUSE')  :
+    query.state === 'out' ? classified.filter((o) => o.warehouseState === 'LEFT_WAREHOUSE') :
+                            classified;
+
+  const page  = query.page  ?? 1;
+  const limit = query.limit ?? 20;
+  const skip  = (page - 1) * limit;
+  const data  = filtered.slice(skip, skip + limit);
+
+  return {
+    data,
+    total: filtered.length,
+    inWarehouse:   classified.filter((o) => o.warehouseState === 'IN_WAREHOUSE').length,
+    leftWarehouse: classified.filter((o) => o.warehouseState === 'LEFT_WAREHOUSE').length,
+    page, limit,
+    pages: Math.ceil(filtered.length / limit),
+  };
+}
+
+// ══════════════════════════════════════════════════
+// WAREHOUSE — History
+// ══════════════════════════════════════════════════
+async warehouseHistory(query: WarehouseHistoryQueryDto, currentUser: any) {
+  const staff = await this.prisma.staff.findUnique({
+    where: { id: currentUser.id },
+    select: { id: true, branchId: true, regionId: true, role: true },
+  });
+  if (!staff) throw new NotFoundException('Staff not found');
+
+  let scopeFilter: any;
+  if (staff.role === StaffRole.SUPER_ADMIN) {
+    scopeFilter = {};
+  } else if (staff.role === StaffRole.REGIONAL_ADMIN) {
+    scopeFilter = {
+      OR: [
+        { destBranch: { regionId: staff.regionId } },
+        { originBranch: { regionId: staff.regionId } },
+      ],
+    };
+  } else if (staff.role === StaffRole.BRANCH_MANAGER) {
+    scopeFilter = {
+      OR: [
+        { destBranchId: staff.branchId },
+        { originBranchId: staff.branchId },
+      ],
+    };
+  } else {
+    throw new ForbiddenException('Access denied');
+  }
+
+  const where: any = {
+    actorType: 'STAFF',
+    OR: [
+      { note: { startsWith: 'Received at' } },
+      { note: { startsWith: 'Arrived at' } },
+      { note: { startsWith: 'Dispatched' } },
+      { note: { startsWith: 'Handed over' } },
+    ],
+    ...(query.from || query.to
+      ? {
+          createdAt: {
+            ...(query.from ? { gte: new Date(query.from) } : {}),
+            ...(query.to   ? { lte: new Date(query.to)   } : {}),
+          },
+        }
+      : {}),
+  };
+
+  if (Object.keys(scopeFilter).length > 0) {
+    where.order = scopeFilter;
+  }
+
+  const page  = query.page  ?? 1;
+  const limit = query.limit ?? 30;
+  const skip  = (page - 1) * limit;
+
+  const [data, total] = await Promise.all([
+    this.prisma.orderEvent.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
+      include: {
+        order: {
+          select: {
+            id: true, trackingNumber: true, status: true,
+            senderName: true, senderPhone: true,
+            receiverName: true, receiverPhone: true,
+            destBranch:   { select: { id: true, name: true, code: true } },
+            originBranch: { select: { id: true, name: true, code: true } },
+          },
+        },
+      },
+    }),
+    this.prisma.orderEvent.count({ where }),
+  ]);
+
+  const enriched = data.map((e) => {
+    const n = e.note ?? '';
+    const kind =
+      n.startsWith('Received at') || n.startsWith('Arrived at') ? 'SCAN_IN'
+      : n.startsWith('Dispatched')  || n.startsWith('Handed over') ? 'SCAN_OUT'
+      : 'OTHER';
+    return { ...e, kind };
+  });
+
+  return {
+    data: enriched,
+    total, page, limit,
+    pages: Math.ceil(total / limit),
+  };
+}
+// ══════════════════════════════════════════════════
+// WAREHOUSE — Stats
+// ══════════════════════════════════════════════════
+async warehouseStats(currentUser: any) {
+  const staff = await this.prisma.staff.findUnique({
+    where: { id: currentUser.id },
+    select: { id: true, name: true, branchId: true, regionId: true, role: true },
+  });
+  if (!staff) throw new NotFoundException('Staff not found');
+
+  let scopeFilter: any;
+  if (staff.role === StaffRole.SUPER_ADMIN) {
+    scopeFilter = {};
+  } else if (staff.role === StaffRole.REGIONAL_ADMIN) {
+    if (!staff.regionId) throw new ForbiddenException('Regional admin has no region');
+    scopeFilter = {
+      OR: [
+        { destBranch: { regionId: staff.regionId } },
+        { originBranch: { regionId: staff.regionId } },
+      ],
+    };
+  } else if (staff.role === StaffRole.BRANCH_MANAGER) {
+    if (!staff.branchId) throw new ForbiddenException('Branch manager has no branch');
+    scopeFilter = {
+      OR: [
+        { destBranchId: staff.branchId },
+        { originBranchId: staff.branchId },
+      ],
+    };
+  } else {
+    throw new ForbiddenException('Access denied');
+  }
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const [scanIns, scanOuts, orders] = await Promise.all([
+    this.prisma.orderEvent.count({
+      where: {
+        actorType: 'STAFF',
+        createdAt: { gte: startOfDay },
+        OR: [
+          { note: { startsWith: 'Received at' } },
+          { note: { startsWith: 'Arrived at' } },
+        ],
+        ...(Object.keys(scopeFilter).length > 0 ? { order: scopeFilter } : {}),
+      },
+    }),
+    this.prisma.orderEvent.count({
+      where: {
+        actorType: 'STAFF',
+        createdAt: { gte: startOfDay },
+        OR: [
+          { note: { startsWith: 'Dispatched' } },
+          { note: { startsWith: 'Handed over' } },
+        ],
+        ...(Object.keys(scopeFilter).length > 0 ? { order: scopeFilter } : {}),
+      },
+    }),
+    this.prisma.order.findMany({
+      where: {
+        AND: [
+          scopeFilter,
+          {
+            status: {
+              notIn: [OrderStatus.CANCELLED, OrderStatus.RETURNED, OrderStatus.FAILED],
+            },
+          },
+        ],
+      },
+      take: 500,
+      include: {
+        events: {
+          where: { actorType: 'STAFF' },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { note: true },
+        },
+      },
+    }),
+  ]);
+
+  const myBranchId = staff.branchId;
+  const isSuperAdmin = staff.role === StaffRole.SUPER_ADMIN;
+  const postPickupStatuses: OrderStatus[] = [
+    OrderStatus.PICKED_UP,
+    OrderStatus.IN_TRANSIT,
+    OrderStatus.OUT_FOR_DELIVERY,
+    OrderStatus.DELIVERED,
+  ];
+
+  const isInWarehouse = (o: any) => {
+    const note = o.events[0]?.note ?? '';
+    const isOriginIntake = note.startsWith('Received at');
+    const isDestArrival  = note.startsWith('Arrived at');
+    const hasLeft = postPickupStatuses.includes(o.status);
+
+    if (isOriginIntake) {
+      if (isSuperAdmin) return !hasLeft;
+      return o.originBranchId === myBranchId && !hasLeft;
+    }
+    if (isDestArrival) {
+      if (isSuperAdmin) return true;
+      return o.destBranchId === myBranchId;
+    }
+    // No scan-in yet
+    if (isSuperAdmin) return false;
+    return o.originBranchId === myBranchId && !hasLeft;
+  };
+
+  const inWarehouse = orders.filter(isInWarehouse).length;
+
+  return {
+    today: { scanIns, scanOuts },
+    currentlyInWarehouse: inWarehouse,
+    pendingDispatch: inWarehouse,
+  };
+}
+
+
   // ══════════════════════════════════════════════════
   // STAFF SCAN-OUT (A: Handover to Receiver, B: Dispatch to Courier)
   // ══════════════════════════════════════════════════
@@ -1519,6 +2041,9 @@ export class OrdersService {
               : {}),
           },
           include: {
+            items: true,
+            sender: { select: { id: true, name: true, phone: true } },
+            receiver: { select: { id: true, name: true, phone: true } },
             originBranch: { select: { id: true, name: true, code: true } },
             destBranch: { select: { id: true, name: true, code: true } },
             courier: { select: { id: true, name: true, phone: true } },
@@ -1678,6 +2203,9 @@ export class OrdersService {
             assignedAt: new Date(),
           },
           include: {
+            items: true,
+            sender: { select: { id: true, name: true, phone: true } },
+            receiver: { select: { id: true, name: true, phone: true } },
             originBranch: { select: { id: true, name: true, code: true } },
             destBranch: { select: { id: true, name: true, code: true } },
             courier: { select: { id: true, name: true, phone: true } },
