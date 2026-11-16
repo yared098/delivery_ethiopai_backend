@@ -82,6 +82,7 @@ export class TelegramOrdersHandler {
       senderLat: undefined,
       senderLng: undefined,
       senderAddress: undefined,
+      items: [],
     });
     await ctx.say(t(ctx.lang, 'orderAskReceiverName'), REMOVE_KEYBOARD);
   }
@@ -227,7 +228,73 @@ export class TelegramOrdersHandler {
           await ctx.say(t(ctx.lang, 'invalidWeight'));
           return true;
         }
-        this.sessions.setStep(ctx.chatId, 'order:sender_location', { weightKg: weight });
+        this.sessions.setStep(ctx.chatId, 'order:add_more', { weightKg: weight });
+        await ctx.say(
+          t(ctx.lang, 'orderAskAddMoreItem'),
+          {
+            keyboard: [[
+              { text: t(ctx.lang, 'btn.addAnother') },
+              { text: t(ctx.lang, 'btn.finishItems') },
+            ]],
+            resize_keyboard: true,
+            one_time_keyboard: true,
+            is_persistent: false,
+          },
+        );
+        return true;
+      }
+
+      case 'order:add_more': {
+        const trimmed = text.trim();
+        const isAddAnother =
+          trimmed.toLowerCase() === t(ctx.lang, 'btn.addAnother').toLowerCase() ||
+          trimmed === t(ctx.lang, 'btn.addAnother');
+        const isFinish =
+          trimmed.toLowerCase() === t(ctx.lang, 'btn.finishItems').toLowerCase() ||
+          trimmed === t(ctx.lang, 'btn.finishItems');
+
+        if (!isAddAnother && !isFinish) {
+          await ctx.say(
+            t(ctx.lang, 'orderAskAddMoreItem'),
+            {
+              keyboard: [[
+                { text: t(ctx.lang, 'btn.addAnother') },
+                { text: t(ctx.lang, 'btn.finishItems') },
+              ]],
+              resize_keyboard: true,
+              one_time_keyboard: true,
+              is_persistent: false,
+            },
+          );
+          return true;
+        }
+
+        // Save the current item to the items array
+        const session = this.sessions.get(ctx.chatId);
+        const data = session.data;
+        const currentItem = {
+          description: data.itemDescription as string,
+          weightKg: data.weightKg as number,
+          photoUrl: data.photoUrl as string | undefined,
+          quantity: 1,
+        };
+
+        const items = [...(data.items ?? []), currentItem];
+
+        if (isAddAnother) {
+          // Clear temp fields for the next item and loop back
+          this.sessions.setStep(ctx.chatId, 'order:item', {
+            items,
+            itemDescription: undefined,
+            photoUrl: undefined,
+            weightKg: undefined,
+          });
+          await ctx.say(t(ctx.lang, 'orderAskItem'), REMOVE_KEYBOARD);
+          return true;
+        }
+
+        // Finish adding items — proceed to sender location
+        this.sessions.setStep(ctx.chatId, 'order:sender_location', { items });
         await ctx.say(
           t(ctx.lang, 'orderAskSenderLocation'),
           shareLocationKeyboard(ctx.lang),
@@ -299,20 +366,34 @@ export class TelegramOrdersHandler {
     this.sessions.setStep(ctx.chatId, 'order:confirm');
 
     const data = this.sessions.get(ctx.chatId).data;
+    const items = data.items ?? [];
+    const totalWeightKg = items.reduce((sum, item) => sum + (item.weightKg ?? 0), 0);
+
     const estimate = this.pricing.calculate({
       distanceKm: 0,
-      totalWeightKg: data.weightKg ?? 0,
-      items: [{ type: 'OTHER', quantity: 1 }],
+      totalWeightKg,
+      items: items.map((item) => ({
+        type: 'OTHER' as const,
+        quantity: item.quantity ?? 1,
+      })),
     }).total;
+
+    const itemLines = items.map(
+      (item, i) =>
+        `  ${i + 1}. ${item.description} — ${item.weightKg} kg`,
+    ).join('\n');
 
     const lines = [
       t(ctx.lang, 'orderConfirmTitle'),
       '',
       `${t(ctx.lang, 'receiverLabel')}: ${data.receiverName ?? '-'}`,
       `${t(ctx.lang, 'phoneLabel')}: ${data.receiverPhone ? toLocalPhone(data.receiverPhone) : '-'}`,
-      `${t(ctx.lang, 'itemLabel')}: ${data.itemDescription ?? '-'}`,
-      `${t(ctx.lang, 'photoLabel')}: ${data.photoUrl ? '📸 ' + t(ctx.lang, 'photoAttached') : '-'}`,
-      `${t(ctx.lang, 'weightLabel')}: ${data.weightKg ?? 0} kg`,
+      `${t(ctx.lang, 'itemsLabel')}:`,
+      itemLines,
+      `${t(ctx.lang, 'photoLabel')}: ${
+        items.some((it) => it.photoUrl) ? '📸 ' + t(ctx.lang, 'photoAttached') : '-'
+      }`,
+      `${t(ctx.lang, 'weightLabel')}: ${totalWeightKg.toFixed(2)} kg`,
       `📍 ${t(ctx.lang, 'addressLabel')}: ${
         data.senderLat != null && data.senderLng != null
           ? `${data.senderLat.toFixed(5)}, ${data.senderLng.toFixed(5)}`
@@ -334,8 +415,8 @@ export class TelegramOrdersHandler {
     if (
       !data.receiverName ||
       !data.receiverPhone ||
-      !data.itemDescription ||
-      !data.weightKg
+      !data.items ||
+      data.items.length === 0
     ) {
       this.sessions.reset(ctx.chatId);
       await ctx.say(t(ctx.lang, 'unknownCommand'), mainMenuKeyboard(ctx.lang));
@@ -409,14 +490,12 @@ export class TelegramOrdersHandler {
         name: data.receiverName as string,
         phone: data.receiverPhone as string,
       },
-      items: [
-        {
-          description: data.itemDescription as string,
-          weightKg: data.weightKg as number,
-          quantity: 1,
-          photoUrl: data.photoUrl,
-        },
-      ],
+      items: (data.items ?? []).map((item) => ({
+        description: item.description,
+        weightKg: item.weightKg,
+        quantity: item.quantity ?? 1,
+        photoUrl: item.photoUrl,
+      })),
       paymentParty:
         data.paymentParty === 'RECEIVER' ? PaymentParty.RECEIVER : PaymentParty.SENDER,
       sendReceiverLink: true,

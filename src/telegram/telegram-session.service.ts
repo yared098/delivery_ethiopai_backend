@@ -12,6 +12,7 @@ export type BotStep =
   | 'order:item'
   | 'order:photo'
   | 'order:weight'
+  | 'order:add_more'
   | 'order:sender_location'
   | 'order:payment'
   | 'order:confirm'
@@ -33,6 +34,7 @@ export interface SessionData {
   senderLat?: number;
   senderLng?: number;
   senderAddress?: string;
+  items?: Array<{ description: string; weightKg: number; photoUrl?: string; quantity?: number }>;
 }
 
 export interface BotSession {
