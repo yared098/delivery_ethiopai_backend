@@ -21,7 +21,7 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 
 @Public()
-@Controller('api/v1/telegram/webapp')
+@Controller('telegram/webapp')
 export class TelegramWebAppController {
   private readonly logger = new Logger(TelegramWebAppController.name);
 
