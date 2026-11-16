@@ -19,7 +19,7 @@ import {
 } from '../telegram.constants';
 import { DEFAULT_LANG, isLang, Lang, t } from '../i18n/telegram.i18n';
 import { BotContext } from './bot-context';
-import { mainMenuKeyboard, resolveMenuAction } from './keyboards';
+import { languageKeyboard, mainMenuKeyboard, resolveMenuAction } from './keyboards';
 import { TelegramAccountHandler } from './handlers/account.handler';
 import { TelegramOrdersHandler } from './handlers/orders.handler';
 import { TelegramTrackingHandler } from './handlers/tracking.handler';
@@ -246,14 +246,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async showLanguagePicker(ctx: BotContext): Promise<void> {
-    await ctx.say(t(ctx.lang, 'languageTitle'), {
-      inline_keyboard: [
-        [
-          { text: 'English', callback_data: `${CALLBACK_DATA.language}:en` },
-          { text: 'አማርኛ', callback_data: `${CALLBACK_DATA.language}:am` },
-        ],
-      ],
-    });
+    await ctx.say(t(ctx.lang, 'languageTitle'), languageKeyboard());
   }
 
   private async runMenuAction(ctx: BotContext, action: string): Promise<void> {

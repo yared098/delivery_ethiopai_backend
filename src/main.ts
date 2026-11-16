@@ -18,12 +18,30 @@ async function bootstrap() {
   );
   app.use(cookieParser());
 
+  // app.enableCors({
+  //   origin: true,
+  //   credentials: true,
+  //   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  //   allowedHeaders: ['Content-Type', 'Authorization'],
+  // }); 
+
   app.enableCors({
-    origin: true,
-    credentials: true,
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  });
+  origin: [
+    // Vercel — stable alias (this is the one that must match)
+    'https://truest-express-form.vercel.app',
+    // All preview deployments (hashed subdomains)
+    /^https:\/\/truest-express-form[\w-]+\.vercel\.app$/,
+    // Backend itself (legacy form + admin)
+    'https://api.truestexpress.smrestaurant.com',
+    // Local dev
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  maxAge: 86400,
+});
 
   // ══════════════════════════════════════════════════
   //  🩺 HEALTH CHECK — before global prefix so it lives at /health

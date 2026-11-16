@@ -94,17 +94,33 @@ export class TelegramWebAppService {
     return !!token && token.trim().length > 0;
   }
 
-  /** Public URL base for the web app (falls back to PUBLIC_API_URL). */
+  /** Public URL base for the web app (requires PUBLIC_API_URL to be set to HTTPS). */
+    /**
+   * Public URL of the deployed Mini App (Vercel / Firebase).
+   * The bot's "Open order form" button opens this URL.
+   */
   get webAppUrl(): string {
-    const url = (
-      this.config.get<string>('PUBLIC_API_URL') ?? 'http://localhost:3000'
-    ).replace(/\/$/, '');
-    if (!url.startsWith('https://')) {
-      this.logger.warn(
-        `PUBLIC_API_URL is not HTTPS (${url}). Telegram Web Apps require HTTPS links — ` +
-          'the "Open order form" button will fail until you set PUBLIC_API_URL to an https:// URL.',
+    const url =
+      this.config.get<string>('WEBAPP_URL') ??
+      this.config.get<string>('PUBLIC_API_URL'); // fallback while migrating
+
+    if (!url) {
+      throw new Error(
+        'WEBAPP_URL is not set. Set it to the Vercel/Firebase URL, e.g. ' +
+          'WEBAPP_URL=https://truest-express-form.vercel.app',
       );
     }
-    return url;
+    const cleanUrl = url.replace(/\/$/, '');
+    if (!cleanUrl.startsWith('https://')) {
+      throw new Error(
+        `WEBAPP_URL must use HTTPS (got: ${cleanUrl}). Telegram Web Apps only allow https://.`,
+      );
+    }
+    return cleanUrl;
+  }
+
+  /** The URL the bot opens to launch the form. */
+  get orderFormUrl(): string {
+    return `${this.webAppUrl}/`;
   }
 }

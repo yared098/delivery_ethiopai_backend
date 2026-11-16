@@ -165,32 +165,32 @@ const STATUS_LABELS: Record<Lang, Record<OrderStatus, string>> = {
     [OrderStatus.RETURNED]: 'Ka dhuftee',
   },
   ti: {
-    [OrderStatus.DRAFT]: 'Hunda',
-    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\'aa barbaachisa',
-    [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
-    [OrderStatus.PAID]: 'Fee yaadhe',
-    [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
-    [OrderStatus.PICKED_UP]: 'Qabtay',
-    [OrderStatus.IN_TRANSIT]: 'Road keessa',
-    [OrderStatus.OUT_FOR_DELIVERY]: 'Delivery keessatti',
-    [OrderStatus.DELIVERED]: 'Delivery qabne',
-    [OrderStatus.FAILED]: 'Delivery hin qabne',
-    [OrderStatus.CANCELLED]: 'Waarutti',
-    [OrderStatus.RETURNED]: 'Ka dhuftee',
+    [OrderStatus.DRAFT]: 'ረቂቅ',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'ዘለዉ ኣለብኹ ቦታ',
+    [OrderStatus.PENDING_PAYMENT]: 'ክፍለል እዩ',
+    [OrderStatus.PAID]: 'ተገለጸ',
+    [OrderStatus.ASSIGNED]: 'ተለዋሕ',
+    [OrderStatus.PICKED_UP]: 'ተወስዷ',
+    [OrderStatus.IN_TRANSIT]: 'በመንገዲ እዩ',
+    [OrderStatus.OUT_FOR_DELIVERY]: 'ንዝመልስ',
+    [OrderStatus.DELIVERED]: 'ተረኸል',
+    [OrderStatus.FAILED]: 'ኣይተረኸቡን',
+    [OrderStatus.CANCELLED]: 'ተሰርቡ',
+    [OrderStatus.RETURNED]: 'ተመላሽ',
   },
   so: {
-    [OrderStatus.DRAFT]: 'Hunda',
-    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\'aa barbaachisa',
-    [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
-    [OrderStatus.PAID]: 'Fee yaadhe',
-    [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
+    [OrderStatus.DRAFT]: 'Huna',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Gaadiidka ka dhacay',
+    [OrderStatus.PENDING_PAYMENT]: 'Lagu qabtay',
+    [OrderStatus.PAID]: 'Lagu qabtay',
+    [OrderStatus.ASSIGNED]: 'Courier-ku samaynay',
     [OrderStatus.PICKED_UP]: 'Qabtay',
-    [OrderStatus.IN_TRANSIT]: 'Road keessa',
-    [OrderStatus.OUT_FOR_DELIVERY]: 'Delivery keessatti',
-    [OrderStatus.DELIVERED]: 'Delivery qabne',
-    [OrderStatus.FAILED]: 'Delivery hin qabne',
-    [OrderStatus.CANCELLED]: 'Waarutti',
-    [OrderStatus.RETURNED]: 'Ka dhuftee',
+    [OrderStatus.IN_TRANSIT]: 'Gudaha',
+    [OrderStatus.OUT_FOR_DELIVERY]: 'Lagu sameynayo',
+    [OrderStatus.DELIVERED]: 'U diray',
+    [OrderStatus.FAILED]: 'Ma qaba',
+    [OrderStatus.CANCELLED]: 'Keliya',
+    [OrderStatus.RETURNED]: 'Ka dhufay',
   },
 };
 
@@ -215,24 +215,25 @@ const en: Dictionary = {
   'btn.useWizard': '💬 Use chat wizard',
 
   welcome:
-    'Welcome to Deliver Ethiopia.\\nSend a parcel anywhere in Ethiopia and follow it in real time.',
-  welcomeBack: 'Welcome back, {name}.',
+    '*Welcome to Deliver Ethiopia!*\\n\\n' +
+    'Send a parcel anywhere in Ethiopia and track it in real time.',
+  welcomeBack: '*Welcome back,* {name}!',
   help:
-    'Available commands:\\n' +
-    '/neworder - create an order\\n' +
-    '/orders - my orders\\n' +
-    '/track <number> - follow an order\\n' +
-    '/register - create an account\\n' +
-    '/link <phone> - link an existing account\\n' +
-    '/me - my profile\\n' +
-    '/language - change language\\n' +
-    '/cancel - cancel the current step',
+    '*Available Commands*' + '\\n\\n' +
+    '/neworder — Create a new order\\n' +
+    '/orders — My orders\\n' +
+    '/track <number> — Track an order\\n' +
+    '/register — Create an account\\n' +
+    '/link <phone> — Link existing account\\n' +
+    '/me — My profile\\n' +
+    '/language — Change language\\n' +
+    '/cancel — Cancel current step',
   unknownCommand: 'I did not understand that. Send /help to see what I can do.',
   cancelled: 'Cancelled.',
   notRegistered:
     'Your Telegram is not linked to a Deliver Ethiopia account yet.\\nSend /register to create one, or /link 0912345678 to connect an existing account.',
   registeredAs: 'Signed in as {name}.',
-  mainMenu: 'What would you like to do?',
+  mainMenu: '*What would you like to do?*',
   menuPlaceholder: 'Choose an option or type a command...',
   locationPlaceholder: 'Tap the button to share location, or tap Skip...',
 
@@ -283,16 +284,16 @@ const en: Dictionary = {
   ordersTitle: 'Your orders',
   ordersPageOf: 'Page {page} of {pages}',
   orderDetailsTitle: 'Order {tracking}',
-  senderLabel: 'Sender',
-  receiverLabel: 'Receiver',
-  itemLabel: 'Item',
-  photoLabel: 'Photo',
+  senderLabel: 'ይላልታ',
+  receiverLabel: 'ተቀባይ',
+  itemLabel: 'እቃ',
+  photoLabel: 'ፎቶ',
   photoAttached: 'Attached',
-  feeLabel: 'Fee',
+  feeLabel: 'ድሮ',
   weightLabel: 'Weight',
-  statusLabel: 'Status',
-  trackingLabel: 'Tracking',
-  courierLabel: 'Courier',
+  statusLabel: 'ሁኔታ',
+  trackingLabel: 'ተጋራይ',
+  courierLabel: 'ማድረሻ ሰራተኛ',
   eventsTitle: 'Latest updates',
   noEvents: 'No updates yet.',
   estimateFrom: 'from {fee}',
@@ -312,7 +313,7 @@ const en: Dictionary = {
   orderAskAddMoreItem: 'Add another item?',
   'btn.addAnother': 'Add another item',
   'btn.finishItems': 'Finish & continue',
-  'itemsLabel': 'Items',
+  'itemsLabel': 'እቃዎች',
   createOrderChoose: 'How would you like to create your order?',
 };
 
@@ -337,24 +338,25 @@ const am: Dictionary = {
   'btn.useWizard': '💬 ቦቱን ተጠቀም',
 
   welcome:
-    'እንኳን ወደ ዴሊቨር ኢትዮጵያ በደህና መጡ።\\nበኢትዮጵያ ውስጥ በማንኛውም ቦታ ፓርሴል ይላኩ እና በቀጥታ ይከታተሉ።',
-  welcomeBack: 'እንኳን ደህና መጡ፣ {name}።',
+    '*እንኳን ወደ ዴሊቨር ኢትዮጵያ!*\\n\\n' +
+    'በኢትዮጵያ ውስጥ በማንኛውም ቦታ ፓርሴል ይላኩ እና በቀጥታ ይከታተሉ።',
+  welcomeBack: '*እንኳን ደህና መጡ,* {name}!',
   help:
-    'የሚገኙ ትዕዛዞች፦\\n' +
-    '/neworder - አዲስ ትዕዛዝ መፍጠር\\n' +
-    '/orders - የእኔ ትዕዛዞች\\n' +
-    '/track <ቁጥር> - ትዕዛዝ መከታተል\\n' +
-    '/register - አካውንት መክፈት\\n' +
-    '/link <ስልክ> - ያለውን አካውንት ማገናኘት\\n' +
-    '/me - መገለጫዬ\\n' +
-    '/language - ቋንቋ መቀየር\\n' +
-    '/cancel - የአሁኑን ደረጃ መሰረዝ',
+    '*የሚገኙ ትዕዛዞች*\\n\\n' +
+    '/neworder — አዲስ ትዕዛዝ መፍጠር\\n' +
+    '/orders — የእኔ ትዕዛዞች\\n' +
+    '/track <ቁጥር> — ትዕዛዝ መከታተል\\n' +
+    '/register — አካውንት መክፈት\\n' +
+    '/link <ስልክ> — አካውንት ማገናኘት\\n' +
+    '/me — መገለጫዬ\\n' +
+    '/language — ቋንቋ መቀየር\\n' +
+    '/cancel — የፈጽም ደረጃ መሰረዝ',
   unknownCommand: 'ያንን አልተረዳሁም። ሊያደርጉ የሚችሉትን ለማየት /help ይላኩ።',
   cancelled: 'ተሰርዟል።',
   notRegistered:
     'ይህ ቴሌግራም ከዴሊቨር ኢትዮጵያ አካውንት ጋር አልተገናኘም።\\nአዲስ ለመክፈት /register ይላኩ፤ ያለውን ለማገናኘት /link 0912345678 ይላኩ።',
   registeredAs: 'እንደ {name} ገብተዋል።',
-  mainMenu: 'ምን ማድረግ ይፈልጋሉ?',
+  mainMenu: '*ምን ማድረግ ይፈልጋሉ?*',
   menuPlaceholder: 'አማራጭ ይምረጡ ወይም ትዕዛዝ ይጻፉ...',
   locationPlaceholder: 'ቦታዎን ለማጋራት አዝራሩን ይጫኑ ወይም ዝለልን ይጫኑ...',
 
@@ -457,24 +459,25 @@ const om: Dictionary = {
   'btn.useWizard': '💬 Botii keessatti qabe',
 
   welcome:
-    'Deliver Ethiopia ilaalaa.\\nAbdiya ittiya fudhateeti Oromiyaa ni barraa keessaa sanyii hunda fi bilisa hin qabne.',
-  welcomeBack: 'Illaa akka, {name}.',
+    '*Deliver Ethiopia Ilaalaa!*\\n\\n' +
+    'Abdiya ittiya fudhateeti Oromiyaa ni barraa keessaa sanyii hunda fi bilisa hin qabne.',
+  welcomeBack: '*Illaa akka,* {name}!',
   help:
-    'Ajajaati gaaddidhaan:\\n' +
-    '/neworder - hunda qabe\\n' +
-    '/orders - hunduma kana\\n' +
-    '/track <baha> - baha qabe\\n' +
-    '/register - account qabe\\n' +
-    '/link <phone> - account hundaa taassisi\\n' +
-    '/me - profilee\\n' +
-    '/language - tilammaa keessa\\n' +
-    '/cancel - tokko tokko kaafii fufudha',
+    '*Ajajaati Gaaddidhaan*\\n\\n' +
+    '/neworder — Hunda qabe\\n' +
+    '/orders — Hunduma kana\\n' +
+    '/track <baha> — Baha qabe\\n' +
+    '/register — Account qabe\\n' +
+    '/link <phone> — Account hundaa taassisi\\n' +
+    '/me — Profilee\\n' +
+    '/language — Tilammaa keessa\\n' +
+    '/cancel — Fufudha qabe',
   unknownCommand: 'Kana waan walqabtee hin yomne. Gaaddidhaan /help.',
   cancelled: 'Waarutti.',
   notRegistered:
     'Telegramga kana ykn Deliver Ethiopia account keessatti hin turtubne.\\nAccount qabdachuu /neworder fi link /link 0912345678.',
   registeredAs: '{name} akka yaada.',
-  mainMenu: 'Maali maqaa keessatti darbe?',
+  mainMenu: '*Maali maqaa keessatti darbe?*',
   menuPlaceholder: 'Masaara bixadhu yaada yaala...',
   locationPlaceholder: 'Button kana qabdi ga\'aa jira, fufudha qabdi...',
 
@@ -523,38 +526,38 @@ const om: Dictionary = {
   noOrders: 'Hundaa hin qabne. New order qabdi.',
   ordersTitle: 'Hunduma kana',
   ordersPageOf: 'Page {page} kuma {pages}',
-  orderDetailsTitle: 'Hunda {tracking}',
-  senderLabel: 'Sender',
-  receiverLabel: 'Receiver',
-  itemLabel: 'Item',
-  photoLabel: 'Photo',
-  photoAttached: 'Qabeenyi',
-  feeLabel: 'Fee',
-  weightLabel: 'Galiin',
-  statusLabel: 'Status',
-  trackingLabel: 'Tracking',
-  courierLabel: 'Courier',
-  eventsTitle: 'Jirraan',
-  noEvents: 'Jirraan hin qabne.',
-  estimateFrom: 'fee {fee}',
-  orderQrPrompt: 'QR code kana qabdi, driver keessan.',
-  qrCodeNotFound: 'QR code hin qabne.',
+  orderDetailsTitle: 'ድሮ {tracking}',
+  senderLabel: 'ይላልታ',
+  receiverLabel: 'ተቀባይ',
+  itemLabel: 'እቃ',
+  photoLabel: 'ፎቶ',
+  photoAttached: 'ተያይዟል',
+  feeLabel: 'ድሮ',
+  weightLabel: 'ክብር',
+  statusLabel: 'ሁኔታ',
+  trackingLabel: 'ተጋራይ',
+  courierLabel: 'ማድረሻ ሰራተኛ',
+  eventsTitle: 'የቅርብ ጊዜ መረጃዎች',
+  noEvents: 'እስካሁን መረጃ የለም',
+  estimateFrom: 'ከ {fee} ጀምሮ',
+  orderQrPrompt: 'የQR ኮድ እንዲሳዩ ማድረሻ ሰራተኛው {tracking}',
+  qrCodeNotFound: 'የQR ኮድ አልተገኘም',
 
-  trackAsk: 'Tracking number /track, Missoo /track ETH-2026-ABC123',
-  trackNotFound: 'Hundaa {number} hin qabne.',
+  trackAsk: 'የተጋራይ ቁጥር /track, ምስሉ /track ETH-2026-ABC123',
+  trackNotFound: 'በ {number} ድሮ አልተገኘም',
   trackTitle: 'Tracking {tracking}',
 
-  orderStatusPush: 'Order {tracking}\\nStatus bishaan: {status}',
+  orderStatusPush: 'ድሮ {tracking}\\nአዲስ ሁኔታ: {status}',
 
   invalidPhone: 'Phone kana hin qabne. 0912345678 ykn +251912345678.',
-  invalidWeight: 'Weight number qabdi, 0.01 fi 5000.',
-  invalidName: '2 maqaa qabdi.',
-  invalidItem: 'Item magaalisa 2 maqaa qabdi.',
-  orderAskAddMoreItem: 'Item kana qabdi?',
-  'btn.addAnother': 'Item kana qabdi',
-  'btn.finishItems': 'Fiti & qabdi',
-  'itemsLabel': 'Items',
-  createOrderChoose: 'Hundaa how maali qabdame?',
+  invalidWeight: 'ክብር ቁጥር 0.01 እስከ 5000 ይልከኹለት',
+  invalidName: 'ቢያንስ 2 ፊደሎች ይልከኹለት',
+  invalidItem: 'እቃውን ቢያንስ 2 ፊደሎች ይግለጹ',
+  orderAskAddMoreItem: 'ሌላ እቃ አድርገዋል?',
+  'btn.addAnother': 'ሌላ እቃ አድርግ',
+  'btn.finishItems': 'ዝግባ ይቀረጡ',
+  'itemsLabel': 'እቃዎች',
+  createOrderChoose: 'ድሮውን እንዴት መፍጠር ይፈልጋሉ?',
 };
 
 const ti: Dictionary = {
@@ -578,24 +581,25 @@ const ti: Dictionary = {
   'btn.useWizard': '💬 ቦት ዝገበር',
 
   welcome:
-    'በሰላም ወደ ዴሊቨር ኢትዮጵያ ደህና መጡ።\\nበኢትዮጵያ ውስጥ በትንሽ ቦታ ፓርሴል ይፈጽሙ።',
-  welcomeBack: 'ደህና መጣልኩ፤ {name}.',
+    '*በሰላም ወደ ዴሊቨር ኢትዮጵያ!*\\n\\n' +
+    'በኢትዮጵያ ውስጥ በትንሽ ቦታ ፓርሴል ይፈጽሙ።',
+  welcomeBack: '*ደህና መጣልኩ,* {name}!',
   help:
-    'እድገት ተማኮት፦\\n' +
-    '/neworder - ትዕዛዝ መወያያ\\n' +
-    '/orders - ትዕዛዞችኹና\\n' +
-    '/track <ቁጥር> - ትዕዛዝ ተግባር\\n' +
-    '/register - መዝርዝር\\n' +
-    '/link <phone> - ስም ለውጥና\\n' +
-    '/me - ጽሑፍ ክልኸብ\\n' +
-    '/language - ቋንቋ ምርመራ\\n' +
-    '/cancel - መወያያ ይሰርቡ',
+    '*እድገት ተማኮት*\\n\\n' +
+    '/neworder — ትዕዛዝ መወያያ\\n' +
+    '/orders — ትዕዛዞችኹና\\n' +
+    '/track <ቁጥር> — ትዕዛዝ ተግባር\\n' +
+    '/register — መዝርዝር\\n' +
+    '/link <phone> — ስም ለውጥና\\n' +
+    '/me — ጽሑፍ ክልኸብ\\n' +
+    '/language — ቋንቋ ምርመራ\\n' +
+    '/cancel — ምስክርን ይሰርቡ',
   unknownCommand: 'እንደ ትንቢት ስራ ስም አይተባብርን እንዲሁም /help እስራት.',
   cancelled: 'ተሰርቡ.',
   notRegistered:
     'Telegram ይህ ዴሊቨር ኢትዮጵያ አካዐውንት ኣለብኹ ኣብዚ እዩ። ንገበር ንኽርገይ /neworder ንኣኽር /link 0912345678.',
   registeredAs: 'ኣብ {name} ናብዩ.',
-  mainMenu: 'ኣብዚ ኣብታ እንታይ ኣብዚ እንታይ?',
+  mainMenu: '*ኣብዚ ኣብታ እንታይ ኣብዚ እንታይ?*',
   menuPlaceholder: 'ኣብዚ ነይሪ ምርመራ ወይም ዝግባ.',
   locationPlaceholder: 'ስንሕ ስብራቕ ዝልቦ በለይ ኣብዚ ትኽልሉ...',
 
@@ -622,17 +626,17 @@ const ti: Dictionary = {
   orderAskReceiverName: 'ስም ዘለዎ:',
   orderAskReceiverPhone: 'ስልክ ቁጥር, ሓይሊ 0912345678:',
   orderAskItem: 'ኣብዚ ስርኣት ንኽብሉ? እቃውን ዝገቡ:',
-  orderAskPhoto: '📸 ፎቶ ዝገቡ (2MB kuma), Skip qabdi:',
-  orderAskPhotoInvalid: 'ፎቶ ኣብዚ ኣለብኹ, Skip qabdi.',
+  orderAskPhoto: '📸 ፎቶ ዝገቡ (2MB), Skip እዩ:',
+  orderAskPhotoInvalid: 'ፎቶ ኣይተረኸቡን, Skip እዩ.',
   orderPhotoUploading: '⏳ ፎቶ ምግብር መግለጽ...',
   orderPhotoUploaded: '✅ ፎቶ ተረኸልን ({size})!',
   orderPhotoUploadFailed: 'ፎቶ ኣይተረኸቡን. Image ንኻኣይ ይብል.',
   orderAskWeight: 'ክብር በኪሎግራም, ሓይሊ 2.5:',
   orderAskSenderLocation:
-    '📍 ስንሕ ስብራቕ ዘለዎ ይብል እንታይ.\\nButton ዝልቦ qabdi.',
+    '📍 ስንሕ ስብራቕ ዘለዉ ይብል እንታይ.\\nተጠቃሚ ስንሕ እዩ.',
   orderSenderLocationReceived: '✅ ስንሕ ዘለዉ ተረኸልን.',
-  orderSenderLocationSkipped: 'Address ኣብዚ ትብል።',
-  orderAskPaymentParty: 'Delivery fee ይምጥብል?',
+  orderSenderLocationSkipped: 'አድራሻ ኣብዚ ትብል።',
+  orderAskPaymentParty: 'ድሮ ይጥብል?',
   paySender: 'እኔ ይጥብልኹ',
   payReceiver: 'ተቀባይ ይጥብል',
   orderConfirmTitle: 'ርእሰ ትዕዛዝ',
@@ -641,41 +645,41 @@ const ti: Dictionary = {
   orderCreated:
     'ትዕዛዝ ተገለጸ።\\nTracking number: {tracking}\\nFee estimated: {fee}\\n\\nTracking number ኣብ ተቀባይ ዘለዎ.',
   orderCreateFailed: 'ትዕዛዝ ኣይተረኸቡን: {reason}',
-  noOrders: 'ንኽርገይ ትዕዛዝ ኣለብኹ. New order qabdi.',
+  noOrders: 'ንኽርገይ ትዕዛዝ ኣለብኹ. ንኽርገይ ድሮ qabee.',
   ordersTitle: 'ትዕዛዞችኹና',
   ordersPageOf: 'Page {page} kuma {pages}',
-  orderDetailsTitle: 'Hunda {tracking}',
-  senderLabel: 'Sender',
-  receiverLabel: 'Receiver',
-  itemLabel: 'Item',
-  photoLabel: 'Photo',
-  photoAttached: 'Qabeenyi',
-  feeLabel: 'Fee',
-  weightLabel: 'Galiin',
-  statusLabel: 'Status',
-  trackingLabel: 'Tracking',
-  courierLabel: 'Courier',
-  eventsTitle: 'Jirraan',
-  noEvents: 'Jirraan hin qabne.',
-  estimateFrom: 'fee {fee}',
-  orderQrPrompt: 'QR code kana qabdi, driver keessan.',
-  qrCodeNotFound: 'QR code hin qabne.',
+  orderDetailsTitle: 'ድሮ {tracking}',
+  senderLabel: 'ይላልታ',
+  receiverLabel: 'ተቀባይ',
+  itemLabel: 'እቃ',
+  photoLabel: 'ፎቶ',
+  photoAttached: 'ተያይዟል',
+  feeLabel: 'ድሮ',
+  weightLabel: 'ክብር',
+  statusLabel: 'ሁኔታ',
+  trackingLabel: 'ተጋራይ',
+  courierLabel: 'ማድረሻ ሰራተኛ',
+  eventsTitle: 'የቅርብ ጊዜ መረጃዎች',
+  noEvents: 'እስካሁን መረጃ የለም',
+  estimateFrom: 'ከ {fee} ጀምሮ',
+  orderQrPrompt: 'የQR ኮድ እንዲሳዩ ማድረሻ ሰራተኛው {tracking}',
+  qrCodeNotFound: 'የQR ኮድ አልተገኘም',
 
-  trackAsk: 'Tracking number /track, Missoo /track ETH-2026-ABC123',
-  trackNotFound: 'Hundaa {number} hin qabne.',
+  trackAsk: 'የተጋራይ ቁጥር /track, ምስሉ /track ETH-2026-ABC123',
+  trackNotFound: 'በ {number} ድሮ አልተገኘም',
   trackTitle: 'Tracking {tracking}',
 
-  orderStatusPush: 'Order {tracking}\\nStatus bishaan: {status}',
+  orderStatusPush: 'ድሮ {tracking}\\nአዲስ ሁኔታ: {status}',
 
   invalidPhone: 'ስልክ ቁጥሩ ትክክል ኣይተረኸቡን. 0912345678 ወይም +251912345678.',
-  invalidWeight: 'Weight number qabdi, 0.01 fi 5000.',
-  invalidName: '2 maqaa qabdi.',
-  invalidItem: 'Item magaalisa 2 maqaa qabdi.',
-  orderAskAddMoreItem: 'Item kana qabdi?',
-  'btn.addAnother': 'Item kana qabdi',
-  'btn.finishItems': 'Fiti & qabdi',
-  'itemsLabel': 'Items',
-  createOrderChoose: 'Hundaa how maali qabdame?',
+  invalidWeight: 'ክብር ቁጥር 0.01 እስከ 5000 ይልከኹለት',
+  invalidName: 'ቢያንስ 2 ፊደሎች ይልከኹለት',
+  invalidItem: 'እቃውን ቢያንስ 2 ፊደሎች ይግለጹ',
+  orderAskAddMoreItem: 'ሌላ እቃ አድርገዋል?',
+  'btn.addAnother': 'ሌላ እቃ አድርግ',
+  'btn.finishItems': 'ዝግባ ይቀረጡ',
+  'itemsLabel': 'እቃዎች',
+  createOrderChoose: 'ድሮውን እንዴት መፍጠር ይፈልጋሉ?',
 };
 
 const so: Dictionary = {
@@ -699,24 +703,25 @@ const so: Dictionary = {
   'btn.useWizard': '💬 Bot-ka isticlaal',
 
   welcome:
-    'Nabad gelyo Deliver Ethiopia.\\nWaxaad ula ordhantay Ethiopia muddo kasta.',
-  welcomeBack: 'Nabad gelyo, {name}.',
+    '*Nabad gelyo Deliver Ethiopia!*\\n\\n' +
+    'Waxaad ula ordhantay Ethiopia muddo kasta.',
+  welcomeBack: '*Nabad gelyo,* {name}!',
   help:
-    'Caawimaad:\\n' +
-    '/neworder - order cusub\\n' +
-    '/orders - Order-ka\\n' +
-    '/track <baha> - talli\\n' +
-    '/register - account kaydo\\n' +
-    '/link <phone> - account link\\n' +
-    '/me - profile\\n' +
-    '/language - tilmaamaha\\n' +
-    '/cancel - keliya',
+    '*Caawimaad:*\\n\\n' +
+    '/neworder — Order cusub\\n' +
+    '/orders — Order-ka\\n' +
+    '/track <baha> — Talli\\n' +
+    '/register — Account kaydo\\n' +
+    '/link <phone> — Account link\\n' +
+    '/me — Profile\\n' +
+    '/language — Tilmaamaha\\n' +
+    '/cancel — Furi ka samay',
   unknownCommand: 'Ma qofayna ma qabaa. /help caawin.',
   cancelled: 'Keliya.',
   notRegistered:
     'Telegramgan Deliver Ethiopia account-ka ma qabaa.\\n/neworder account cusub.',
-  registeredAs: 'Signed in as {name}.',
-  mainMenu: 'Maxay tahay aad u daray?',
+  registeredAs: 'Ka xiranayaa {name}.',
+  mainMenu: '*Maxay tahay aad u daray?*',
   menuPlaceholder: 'Masaar uu yahay...',
   locationPlaceholder: 'Gaadiidka qabdi, furi qabdi:',
 

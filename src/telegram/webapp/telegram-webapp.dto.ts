@@ -15,25 +15,29 @@ export class WebAppCreateOrderDto {
   /** Telegram Mini App initData (sent as Authorization: tma <initData>) */
   // validated in service, not DTO
 
-  /** Receiver */
+  /** Receiver (optional — user can skip and fill later) */
+  @IsOptional()
   @IsString()
   @Length(2, 100)
-  receiverName: string;
+  receiverName?: string;
 
+  @IsOptional()
   @IsString()
   @Matches(/^(\+?251|0)?9\d{8}$/, { message: 'Invalid Ethiopian phone' })
-  receiverPhone: string;
+  receiverPhone?: string;
 
-  /** Item */
+  /** Item (optional) */
+  @IsOptional()
   @IsString()
   @Length(2, 255)
-  itemDescription: string;
+  itemDescription?: string;
 
+  @IsOptional()
   @IsNumber()
   @Min(0.01)
   @Max(5000)
   @Type(() => Number)
-  weightKg: number;
+  weightKg?: number;
 
   /** Sender location (optional — shared via browser geolocation) */
   @IsOptional()
@@ -51,7 +55,7 @@ export class WebAppCreateOrderDto {
   @Length(2, 255)
   senderAddress?: string;
 
-  /** Who pays */
+  /** Who pays (optional) */
   @IsOptional()
   @IsIn(['SENDER', 'RECEIVER'])
   paymentParty?: 'SENDER' | 'RECEIVER';

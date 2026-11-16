@@ -36,12 +36,18 @@ export class TelegramWebAppController {
   // Served at GET /api/v1/telegram/webapp/order-form
   // Telegram opens this URL as a Web App inside the bot.
   // ══════════════════════════════════════════════════
-  @Get('order-form')
+  // @Get('order-form')
+  // serveForm(@Res() res: Response): void {
+  //   const apiBase = this.webApp.webAppUrl;
+  //   const html = buildOrderFormHtml(apiBase);
+  //   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  //   res.send(html);
+  // } 
+   @Get('order-form')
   serveForm(@Res() res: Response): void {
-    const apiBase = this.webApp.webAppUrl;
-    const html = buildOrderFormHtml(apiBase);
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    const target = this.webApp.orderFormUrl;
+    this.logger.log(`Redirecting /order-form → ${target}`);
+    res.redirect(302, target);
   }
 
   // ══════════════════════════════════════════════════
@@ -85,7 +91,7 @@ export class TelegramWebAppController {
     }
 
     // 4. Build CreateOrderDto and call orders service
-    const orderDto = {
+    const orderDto: any = {
       sender: {
         customerId: customer.id,
         name: customer.name ?? tgUser.first_name ?? 'Customer',
@@ -94,25 +100,33 @@ export class TelegramWebAppController {
         lat: dto.senderLat ?? customer.defaultLat ?? undefined,
         lng: dto.senderLng ?? customer.defaultLng ?? undefined,
       },
-      receiver: {
-        name: dto.receiverName,
-        phone: dto.receiverPhone,
-      },
-      items: [
+      paymentParty:
+        dto.paymentParty === 'RECEIVER'
+          ? PaymentParty.RECEIVER
+          : PaymentParty.SENDER,
+      sendReceiverLink: Boolean(dto.receiverName && dto.receiverPhone),
+      autoAssignCourier: false,
+    };
+
+    // Only include receiver if provided
+    if (dto.receiverName || dto.receiverPhone) {
+      orderDto.receiver = {
+        name: dto.receiverName ?? 'Receiver',
+        phone: dto.receiverPhone ?? '',
+      };
+    }
+
+    // Only include items if item description and weight are provided
+    if (dto.itemDescription && dto.weightKg) {
+      orderDto.items = [
         {
           description: dto.itemDescription,
           weightKg: dto.weightKg,
           quantity: 1,
           photoUrl: dto.photoUrl,
         },
-      ],
-      paymentParty:
-        dto.paymentParty === 'RECEIVER'
-          ? PaymentParty.RECEIVER
-          : PaymentParty.SENDER,
-      sendReceiverLink: true,
-      autoAssignCourier: false,
-    };
+      ];
+    }
 
     const actor = {
       id: customer.id,
@@ -328,21 +342,21 @@ function buildOrderFormHtml(apiBase: string): string {
 <body>
   <h2>📦 New Order</h2>
 
-  <!-- RECEIVER -->
+  <!-- RECEIVER (optional) -->
   <div class="section">
-    <div class="section-title">Receiver</div>
-    <label>Full name *</label>
+    <div class="section-title">Receiver (optional — fill later if you want)</div>
+    <label>Full name</label>
     <input id="receiverName" type="text" placeholder="e.g. Abebe Kebede" autocomplete="off"/>
-    <label>Phone number *</label>
+    <label>Phone number</label>
     <input id="receiverPhone" type="tel" placeholder="e.g. 0912345678" inputmode="tel"/>
   </div>
 
-  <!-- ITEM -->
+  <!-- ITEM (optional) -->
   <div class="section">
-    <div class="section-title">Package</div>
-    <label>What are you sending? *</label>
+    <div class="section-title">Package (optional)</div>
+    <label>What are you sending?</label>
     <textarea id="itemDescription" placeholder="e.g. Documents, shoes, mobile phone…"></textarea>
-    <label>Weight (kg) *</label>
+    <label>Weight (kg)</label>
     <input id="weightKg" type="number" min="0.01" max="5000" step="0.1" placeholder="e.g. 1.5" inputmode="decimal"/>
   </div>
 
@@ -470,24 +484,34 @@ function buildOrderFormHtml(apiBase: string): string {
     const paymentParty = document.getElementById('paymentParty').value;
     const senderAddress = document.getElementById('senderAddress').value.trim() || undefined;
 
-    // Validate
-    if (receiverName.length < 2) return showToast('⚠️ Receiver name is too short');
-    if (!/^(\\+?251|0)?9\\d{8}$/.test(receiverPhone.replace(/\\s/g, ''))) return showToast('⚠️ Invalid phone number');
-    if (itemDescription.length < 2) return showToast('⚠️ Describe the item (at least 2 characters)');
-    if (!Number.isFinite(weightKg) || weightKg < 0.01 || weightKg > 5000) return showToast('⚠️ Enter a valid weight (0.01 – 5000 kg)');
+    // Validate only if fields are filled
+    if (receiverName && receiverName.length < 2) return showToast('⚠️ Receiver name is too short');
+    if (receiverPhone && !/^(\\+?251|0)?9\\d{8}$/.test(receiverPhone.replace(/\\s/g, ''))) return showToast('⚠️ Invalid phone number');
+    if (itemDescription && itemDescription.length < 2) return showToast('⚠️ Describe the item (at least 2 characters)');
+    if (!isNaN(weightKg) && (weightKg < 0.01 || weightKg > 5000)) return showToast('⚠️ Enter a valid weight (0.01 – 5000 kg)');
 
     tg.MainButton.showProgress(false);
     tg.MainButton.disable();
 
-    const payload = {
-      receiverName,
-      receiverPhone: receiverPhone.replace(/\\s/g, ''),
-      itemDescription,
-      weightKg,
+    const payload: any = {
       paymentParty,
       senderAddress,
       ...(senderLat != null && senderLng != null ? { senderLat, senderLng } : {}),
       ...(uploadedPhotoUrl ? { photoUrl: uploadedPhotoUrl } : {}),
+    };
+
+    // Only add receiver fields if at least one is filled
+    if (receiverName || receiverPhone) {
+      payload.receiverName = receiverName;
+      payload.receiverPhone = receiverPhone.replace(/\\s/g, '');
+    }
+
+    // Only add item fields if filled
+    if (itemDescription) {
+      payload.itemDescription = itemDescription;
+      if (!isNaN(weightKg) && weightKg >= 0.01 && weightKg <= 5000) {
+        payload.weightKg = weightKg;
+      }
     };
 
     try {
