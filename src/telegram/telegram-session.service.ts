@@ -35,6 +35,8 @@ export interface SessionData {
   senderLng?: number;
   senderAddress?: string;
   items?: Array<{ description: string; weightKg: number; photoUrl?: string; quantity?: number }>;
+    lastBotMessageId?: number;    // ← ADD THIS LINE
+
 }
 
 export interface BotSession {

@@ -143,3 +143,15 @@ pm2 save
 sleep 3
 pm2 status
 pm2 logs delivery-ethiopia-api --lines 30 --nostream
+
+
+git pull
+pnpm tsc --noEmit                       # dry-run, no dist written; should be 0 errors
+RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=512" \
+  ./node_modules/.bin/tsc -p tsconfig.json --outDir dist
+./node_modules/.bin/tsc-alias -p tsconfig.json
+ls -la dist/src/main.js
+pm2 delete delivery-ethiopia-api 2>/dev/null || true
+pm2 start dist/src/main.js --name delivery-ethiopia-api --cwd "$PWD"
+pm2 save
+pm2 logs delivery-ethiopia-api --lines 20 --nostream
