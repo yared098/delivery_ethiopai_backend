@@ -64,7 +64,7 @@ export class TelegramOrdersHandler {
     // Let the sender choose: open the Telegram Mini App (web form) or use the
     // step-by-step chat wizard. Opening the web app is optional.
     const orderFormUrl = `${this.webApp.webAppUrl}/api/v1/telegram/webapp/order-form`;
-    await ctx.say(
+    await this.clearAndSay(ctx, 
       t(ctx.lang, 'createOrderChoose'),
       newOrderChoiceKeyboard(ctx.lang, orderFormUrl),
     );
@@ -84,7 +84,7 @@ export class TelegramOrdersHandler {
       senderAddress: undefined,
       items: [],
     });
-    await ctx.say(t(ctx.lang, 'orderAskReceiverName'), REMOVE_KEYBOARD);
+    await this.clearAndSay(ctx, t(ctx.lang, 'orderAskReceiverName'), REMOVE_KEYBOARD);
   }
 
   async handleStep(
@@ -97,36 +97,36 @@ export class TelegramOrdersHandler {
     switch (session.step) {
       case 'order:receiver_name': {
         if (text.trim().length < MIN_ITEM_LENGTH) {
-          await ctx.say(t(ctx.lang, 'invalidName'));
+          await this.clearAndSay(ctx, t(ctx.lang, 'invalidName'));
           return true;
         }
         this.sessions.setStep(ctx.chatId, 'order:receiver_phone', {
           receiverName: text.trim(),
         });
-        await ctx.say(t(ctx.lang, 'orderAskReceiverPhone'));
+        await this.clearAndSay(ctx, t(ctx.lang, 'orderAskReceiverPhone'));
         return true;
       }
 
       case 'order:receiver_phone': {
         const phone = normalizeEthiopianPhone(text);
         if (!phone) {
-          await ctx.say(t(ctx.lang, 'invalidPhone'));
+          await this.clearAndSay(ctx, t(ctx.lang, 'invalidPhone'));
           return true;
         }
         this.sessions.setStep(ctx.chatId, 'order:item', { receiverPhone: phone });
-        await ctx.say(t(ctx.lang, 'orderAskItem'));
+        await this.clearAndSay(ctx, t(ctx.lang, 'orderAskItem'));
         return true;
       }
 
       case 'order:item': {
         if (text.trim().length < MIN_ITEM_LENGTH) {
-          await ctx.say(t(ctx.lang, 'invalidItem'));
+          await this.clearAndSay(ctx, t(ctx.lang, 'invalidItem'));
           return true;
         }
         this.sessions.setStep(ctx.chatId, 'order:photo', {
           itemDescription: text.trim(),
         });
-        await ctx.say(t(ctx.lang, 'orderAskPhoto'), skipStepKeyboard(ctx.lang));
+        await this.clearAndSay(ctx, t(ctx.lang, 'orderAskPhoto'), skipStepKeyboard(ctx.lang));
         return true;
       }
 
@@ -138,7 +138,7 @@ export class TelegramOrdersHandler {
 
         if (isSkip) {
           this.sessions.setStep(ctx.chatId, 'order:weight');
-          await ctx.say(t(ctx.lang, 'orderAskWeight'), REMOVE_KEYBOARD);
+          await this.clearAndSay(ctx, t(ctx.lang, 'orderAskWeight'), REMOVE_KEYBOARD);
           return true;
         }
 
@@ -156,18 +156,18 @@ export class TelegramOrdersHandler {
           photo?.file_id ?? (isImageDoc ? message?.document?.file_id : null);
 
         if (!fileId) {
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderAskPhotoInvalid'),
             skipStepKeyboard(ctx.lang),
           );
           return true;
         }
 
-        await ctx.say(t(ctx.lang, 'orderPhotoUploading'));
+        await this.clearAndSay(ctx, t(ctx.lang, 'orderPhotoUploading'));
 
         const fileInfo = await this.telegramApi.getFile(fileId);
         if (!fileInfo?.file_path) {
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderPhotoUploadFailed'),
             skipStepKeyboard(ctx.lang),
           );
@@ -176,7 +176,7 @@ export class TelegramOrdersHandler {
 
         const rawBuffer = await this.telegramApi.downloadFile(fileInfo.file_path);
         if (!rawBuffer) {
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderPhotoUploadFailed'),
             skipStepKeyboard(ctx.lang),
           );
@@ -198,11 +198,11 @@ export class TelegramOrdersHandler {
           this.sessions.setStep(ctx.chatId, 'order:weight', { photoUrl });
 
           const sizeKb = Math.round(compressed.length / 1024);
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderPhotoUploaded', { size: `${sizeKb} KB` }),
             REMOVE_KEYBOARD,
           );
-          await ctx.say(t(ctx.lang, 'orderAskWeight'));
+          await this.clearAndSay(ctx, t(ctx.lang, 'orderAskWeight'));
           return true;
         } catch (err: unknown) {
           this.logger.error(
@@ -210,7 +210,7 @@ export class TelegramOrdersHandler {
               err instanceof Error ? err.message : String(err)
             }`,
           );
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderPhotoUploadFailed'),
             skipStepKeyboard(ctx.lang),
           );
@@ -225,11 +225,11 @@ export class TelegramOrdersHandler {
           weight < MIN_WEIGHT_KG ||
           weight > MAX_WEIGHT_KG
         ) {
-          await ctx.say(t(ctx.lang, 'invalidWeight'));
+          await this.clearAndSay(ctx, t(ctx.lang, 'invalidWeight'));
           return true;
         }
         this.sessions.setStep(ctx.chatId, 'order:add_more', { weightKg: weight });
-        await ctx.say(
+        await this.clearAndSay(ctx, 
           t(ctx.lang, 'orderAskAddMoreItem'),
           {
             keyboard: [[
@@ -254,7 +254,7 @@ export class TelegramOrdersHandler {
           trimmed === t(ctx.lang, 'btn.finishItems');
 
         if (!isAddAnother && !isFinish) {
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderAskAddMoreItem'),
             {
               keyboard: [[
@@ -289,13 +289,13 @@ export class TelegramOrdersHandler {
             photoUrl: undefined,
             weightKg: undefined,
           });
-          await ctx.say(t(ctx.lang, 'orderAskItem'), REMOVE_KEYBOARD);
+          await this.clearAndSay(ctx, t(ctx.lang, 'orderAskItem'), REMOVE_KEYBOARD);
           return true;
         }
 
         // Finish adding items — proceed to sender location
         this.sessions.setStep(ctx.chatId, 'order:sender_location', { items });
-        await ctx.say(
+        await this.clearAndSay(ctx, 
           t(ctx.lang, 'orderAskSenderLocation'),
           shareLocationKeyboard(ctx.lang),
         );
@@ -310,11 +310,11 @@ export class TelegramOrdersHandler {
             senderLat: latitude,
             senderLng: longitude,
           });
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderSenderLocationReceived'),
             REMOVE_KEYBOARD,
           );
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderAskPaymentParty'),
             paymentPartyKeyboard(ctx.lang),
           );
@@ -331,17 +331,17 @@ export class TelegramOrdersHandler {
 
         if (isCancel) {
           this.sessions.reset(ctx.chatId);
-          await ctx.say(t(ctx.lang, 'cancelled'), mainMenuKeyboard(ctx.lang));
+          await this.clearAndSay(ctx, t(ctx.lang, 'cancelled'), mainMenuKeyboard(ctx.lang));
           return true;
         }
 
         if (isSkip) {
           this.sessions.setStep(ctx.chatId, 'order:payment');
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderSenderLocationSkipped'),
             REMOVE_KEYBOARD,
           );
-          await ctx.say(
+          await this.clearAndSay(ctx, 
             t(ctx.lang, 'orderAskPaymentParty'),
             paymentPartyKeyboard(ctx.lang),
           );
@@ -349,7 +349,7 @@ export class TelegramOrdersHandler {
         }
 
         // Any other text — remind user to use the button or skip
-        await ctx.say(
+        await this.clearAndSay(ctx, 
           t(ctx.lang, 'orderAskSenderLocation'),
           shareLocationKeyboard(ctx.lang),
         );
@@ -403,7 +403,7 @@ export class TelegramOrdersHandler {
       '',
       t(ctx.lang, 'orderConfirmHint'),
     ];
-    await ctx.say(lines.join('\n'), confirmOrderKeyboard(ctx.lang));
+    await this.clearAndSay(ctx, lines.join('\n'), confirmOrderKeyboard(ctx.lang));
   }
 
   async confirmOrder(ctx: BotContext): Promise<void> {
@@ -419,7 +419,7 @@ export class TelegramOrdersHandler {
       data.items.length === 0
     ) {
       this.sessions.reset(ctx.chatId);
-      await ctx.say(t(ctx.lang, 'unknownCommand'), mainMenuKeyboard(ctx.lang));
+      await this.clearAndSay(ctx, t(ctx.lang, 'unknownCommand'), mainMenuKeyboard(ctx.lang));
       return;
     }
 
@@ -436,7 +436,7 @@ export class TelegramOrdersHandler {
 
       const order = result.order;
       if (!order) {
-        await ctx.say(t(ctx.lang, 'orderCreateFailed', { reason: 'order not persisted' }));
+        await this.clearAndSay(ctx, t(ctx.lang, 'orderCreateFailed', { reason: 'order not persisted' }));
         return;
       }
 
@@ -457,7 +457,7 @@ export class TelegramOrdersHandler {
         if (sent) return;
       }
 
-      await ctx.say(
+      await this.clearAndSay(ctx, 
         successText,
         mainMenuKeyboard(ctx.lang),
       );
@@ -467,7 +467,7 @@ export class TelegramOrdersHandler {
           err instanceof Error ? err.message : String(err)
         }`,
       );
-      await ctx.say(
+      await this.clearAndSay(ctx, 
         t(ctx.lang, 'orderCreateFailed', {
           reason: err instanceof Error ? err.message : 'unknown error',
         }),
@@ -532,7 +532,7 @@ export class TelegramOrdersHandler {
     ]);
 
     if (total === 0) {
-      await ctx.say(t(ctx.lang, 'noOrders'), mainMenuKeyboard(ctx.lang));
+      await this.clearAndSay(ctx, t(ctx.lang, 'noOrders'), mainMenuKeyboard(ctx.lang));
       return;
     }
 
@@ -544,7 +544,7 @@ export class TelegramOrdersHandler {
     ];
     const body = orders.map((order) => formatOrderListLine(order, ctx.lang)).join('\n');
 
-    await ctx.say(
+    await this.clearAndSay(ctx, 
       `${header.join('\n')}\n${body}`,
       ordersListKeyboard(orders, safePage, totalPages, ctx.lang),
     );
@@ -567,7 +567,7 @@ export class TelegramOrdersHandler {
     });
 
     if (!order) {
-      await ctx.say(t(ctx.lang, 'noOrders'), mainMenuKeyboard(ctx.lang));
+      await this.clearAndSay(ctx, t(ctx.lang, 'noOrders'), mainMenuKeyboard(ctx.lang));
       return;
     }
 
@@ -606,7 +606,7 @@ export class TelegramOrdersHandler {
       if (sent) return;
     }
 
-    await ctx.say(cardText, keyboard);
+    await this.clearAndSay(ctx, cardText, keyboard);
   }
 
   /**
@@ -636,7 +636,7 @@ export class TelegramOrdersHandler {
     });
 
     if (!order) {
-      await ctx.say(t(ctx.lang, 'qrCodeNotFound'), mainMenuKeyboard(ctx.lang));
+      await this.clearAndSay(ctx, t(ctx.lang, 'qrCodeNotFound'), mainMenuKeyboard(ctx.lang));
       return;
     }
 
@@ -653,7 +653,7 @@ export class TelegramOrdersHandler {
       const keyboard = orderCardKeyboard(order.id, order.trackingUrl, ctx.lang);
       const sent = await ctx.sendPhoto(buffer, lines.join('\n'), keyboard);
       if (!sent) {
-        await ctx.say(lines.join('\n'), keyboard);
+        await this.clearAndSay(ctx, lines.join('\n'), keyboard);
       }
     } catch (err: unknown) {
       this.logger.error(
@@ -661,7 +661,7 @@ export class TelegramOrdersHandler {
           err instanceof Error ? err.message : String(err)
         }`,
       );
-      await ctx.say(t(ctx.lang, 'qrCodeNotFound'), mainMenuKeyboard(ctx.lang));
+      await this.clearAndSay(ctx, t(ctx.lang, 'qrCodeNotFound'), mainMenuKeyboard(ctx.lang));
     }
   }
 
@@ -681,7 +681,7 @@ export class TelegramOrdersHandler {
     });
 
     if (!order) {
-      await ctx.say(t(ctx.lang, 'noOrders'), mainMenuKeyboard(ctx.lang));
+      await this.clearAndSay(ctx, t(ctx.lang, 'noOrders'), mainMenuKeyboard(ctx.lang));
       return;
     }
 

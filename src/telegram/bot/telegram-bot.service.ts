@@ -352,8 +352,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
     return {
       chatId,
       lang,
-      say: (text: string, keyboard?: Record<string, unknown>) =>
-        this.api.sendMessage(chatId, text, keyboard),
+      say: async (text: string, keyboard?: Record<string, unknown>) => {
+        const messageId = await this.api.sendMessage(chatId, text, keyboard);
+        return messageId ?? undefined;
+      },
       sendPhoto: async (
         photo: Buffer | string,
         caption?: string,

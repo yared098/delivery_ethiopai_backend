@@ -5,7 +5,7 @@ import { ReplyMarkup } from './keyboards';
 export interface BotContext {
   chatId: string;
   lang: Lang;
-  say(text: string, keyboard?: ReplyMarkup): Promise<void>;
+  say(text: string, keyboard?: ReplyMarkup): Promise<number | undefined>;
   sendPhoto(
     photo: Buffer | string,
     caption?: string,

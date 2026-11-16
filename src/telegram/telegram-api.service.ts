@@ -215,22 +215,25 @@ export class TelegramApiService {
     }
   }
 
-  /** Telegram rejects messages longer than 4096 chars, so long text is chunked. */
+  /** Telegram rejects messages longer than 4096 chars, so long text is chunked. Returns last message_id. */
   async sendMessage(
     chatId: string | number,
     text: string,
     replyMarkup?: Record<string, unknown>,
-  ): Promise<void> {
+  ): Promise<number | null> {
     const chunks = splitText(text, TELEGRAM_SAFE_CHUNK_LENGTH);
+    let lastMessageId: number | null = null;
     for (let i = 0; i < chunks.length; i++) {
       const isLast = i === chunks.length - 1;
-      await this.call('sendMessage', {
+      const result = await this.call<{ message_id: number }>('sendMessage', {
         chat_id: chatId,
         text: chunks[i],
         disable_web_page_preview: true,
         ...(isLast && replyMarkup ? { reply_markup: replyMarkup } : {}),
       });
+      if (result !== null) lastMessageId = result.message_id;
     }
+    return lastMessageId;
   }
     /**
    * Send a message to all configured admin chat IDs.
