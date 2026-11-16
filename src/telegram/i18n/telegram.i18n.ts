@@ -1,10 +1,13 @@
 import { OrderStatus } from '@prisma/client';
 
-export type Lang = 'en' | 'am';
+export type Lang = 'en' | 'am' | 'om' | 'ti' | 'so';
 
 export const LANGUAGES: ReadonlyArray<{ code: Lang; label: string }> = [
   { code: 'en', label: 'English' },
   { code: 'am', label: 'አማርኛ' },
+  { code: 'om', label: 'Afaan Oromoo' },
+  { code: 'ti', label: 'ትግርኛ' },
+  { code: 'so', label: 'Af-Soomaali' },
 ];
 
 export const DEFAULT_LANG: Lang = 'en';
@@ -357,7 +360,368 @@ const am: Dictionary = {
   createOrderChoose: 'ትዕዛዝዋን እንዴት መፍጠር ይፈልጋሉ?',
 };
 
-const DICTIONARIES: Record<Lang, Dictionary> = { en, am };
+const om: Dictionary = {
+  'btn.newOrder': 'Mudate hunda',
+  'btn.orders': 'Hunduma kana',
+  'btn.track': 'Baha',
+  'btn.account': 'Account',
+  'btn.help': 'Gaaddidhaan',
+  'btn.language': 'Tilammaa',
+  'btn.skip': 'Fufudha',
+  'btn.confirm': 'Hundaa ammas jiru',
+  'btn.cancel': 'Waarudha',
+  'btn.back': 'Kan danda'u',
+  'btn.refresh': 'Keessetti',
+  'btn.openTracking': 'Nuqamsee baha',
+  'btn.showQr': 'QR Code',
+  'btn.register': 'Qabeenyuu',
+  'btn.callSupport': 'Gaaddidhaanii keessan',
+  'btn.shareLocation': '📍 Ga'aa kana jira',
+  'btn.openOrderForm': '🌐 Form hundaa',
+  'btn.useWizard': '💬 Botii keessatti qabe',
+
+  welcome:
+    'Deliver Ethiopia ilaalaa.\nAbdiya ittiya fudhateeti Oromiyaa ni barraa keessaa sanyii hunda fi bilisa hin qabne.',
+  welcomeBack: 'Illaa akka, {name}.',
+  help:
+    'Ajajaati gaaddidhaan:\n' +
+    '/neworder - hunda qabe\n' +
+    '/orders - hunduma kana\n' +
+    '/track <baha> - baha qabe\n' +
+    '/register - account qabe\n' +
+    '/link <phone> - account hundaa taassisi\n' +
+    '/me - profilee\n' +
+    '/language - tilammaa keessa\n' +
+    '/cancel - tokko tokko kaafii fufudha',
+  unknownCommand: 'Kana waan walqabtee hin yomne. Gaaddidhaan /help.',
+  cancelled: 'Waarutti.',
+  notRegistered:
+    'Telegramga kana ykn Deliver Ethiopia account keessatti hin turtubne.\nAccount qabdachuu /neworder fi link /link 0912345678.',
+  registeredAs: '{name} akka yaada.',
+  mainMenu: 'Maali maqaa keessatti darbe?',
+  menuPlaceholder: 'Masaara bixadhu yaada yaala...',
+  locationPlaceholder: 'Button kana qabdi ga'aa jira, fufudha qabdi...',
+
+  languageTitle: 'Tilammaa bixadhu:',
+  languageSet: 'Tilammaa keella hojjate.',
+
+  askName: 'Magala barbaachisa qabdi:',
+  askPhone: 'Phone qabdi, Missoo 0912345678:',
+  askAddress: 'Address qabdi, fufudha qabdi:',
+  registrationDone: 'Registration baay'ee. /neworder keessatti hundaa sanyii.',
+  registrationFailed: 'Registration hin baay'ne: {reason}',
+  accountLinked: 'Account taassisi. Yaada {name}.',
+  accountLinkFailed: 'Phone kana keessatti account hin taane.',
+  accountInUse:
+    'Account kana Telegram kana keessatti taassamne. Gaaddidhaan keessan.',
+  accountUnlinked: 'Account Telegram kana qabdi.',
+  noLinkedAccount: 'Telegram kana account qabdi.',
+  profileTitle: 'Profilee',
+  nameLabel: 'Magala',
+  phoneLabel: 'Phone',
+  addressLabel: 'Address',
+  notSet: 'hin qabne',
+
+  orderAskReceiverName: 'Magala jiraatan:',
+  orderAskReceiverPhone: 'Phone jiraatan, Missoo 0912345678:',
+  orderAskItem: 'Sanyii maali qabdi? Item magaalisa qabdi:',
+  orderAskPhoto: '📸 Item/package gala photo qabdi (2MB kuma), fufudha qabdi:',
+  orderAskPhotoInvalid: 'Photo qabdi, fufudha qabdi.',
+  orderPhotoUploading: '⏳ Photo gala hin keessan...',
+  orderPhotoUploaded: '✅ Photo gala hin keessan qabne ({size})!',
+  orderPhotoUploadFailed: 'Photo hin qabne. Image kana qabdi.',
+  orderAskWeight: 'Galiin keessa, Missoo 2.5:',
+  orderAskSenderLocation:
+    '📍 Ga'aa keessanitti barbaachiisa qabdi.\nButton kana qabdi.',
+  orderSenderLocationReceived: '✅ Ga'aa keessan qabne.',
+  orderSenderLocationSkipped: 'Address keessan qabdi.',
+  orderAskPaymentParty: 'Delivery fee kan maali yaadhe?',
+  paySender: 'Ani yaadhe',
+  payReceiver: 'Jiraatan yaadhe',
+  orderConfirmTitle: 'Hundaa confirm qabdi',
+  orderConfirmHint:
+    'Fee miti road keessatti qaba. Jiraatan link ykn qabe.',
+  orderCreated:
+    'Hundaa qabne.\nBaha tracking: {tracking}\nFee estimated: {fee}\n\nTracking number jiraatan qabdi.',
+  orderCreateFailed: 'Hundaa hin qabne: {reason}',
+  noOrders: 'Hundaa hin qabne. New order qabdi.',
+  ordersTitle: 'Hunduma kana',
+  ordersPageOf: 'Page {page} kuma {pages}',
+  orderDetailsTitle: 'Hunda {tracking}',
+  senderLabel: 'Sender',
+  receiverLabel: 'Receiver',
+  itemLabel: 'Item',
+  photoLabel: 'Photo',
+  photoAttached: 'Qabeenyi',
+  feeLabel: 'Fee',
+  weightLabel: 'Galiin',
+  statusLabel: 'Status',
+  trackingLabel: 'Tracking',
+  courierLabel: 'Courier',
+  eventsTitle: 'Jirraan',
+  noEvents: 'Jirraan hin qabne.',
+  estimateFrom: 'fee {fee}',
+  orderQrPrompt: 'QR code kana qabdi, driver keessan.',
+  qrCodeNotFound: 'QR code hin qabne.',
+
+  trackAsk: 'Tracking number /track, Missoo /track ETH-2026-ABC123',
+  trackNotFound: 'Hundaa {number} hin qabne.',
+  trackTitle: 'Tracking {tracking}',
+
+  orderStatusPush: 'Order {tracking}\nStatus bishaan: {status}',
+
+  invalidPhone: 'Phone kana hin qabne. 0912345678 ykn +251912345678.',
+  invalidWeight: 'Weight number qabdi, 0.01 fi 5000.',
+  invalidName: '2 maqaa qabdi.',
+  invalidItem: 'Item magaalisa 2 maqaa qabdi.',
+  orderAskAddMoreItem: 'Item kana qabdi?',
+  'btn.addAnother': 'Item kana qabdi',
+  'btn.finishItems': 'Fiti & qabdi',
+  'itemsLabel': 'Items',
+  createOrderChoose: 'Hundaa how maali qabdame?',
+};
+
+const ti: Dictionary = {
+  'btn.newOrder': 'መወያያ ትዕዛዝ',
+  'btn.orders': 'ትዕዛዞችኹና',
+  'btn.track': 'ተጋራይ',
+  'btn.account': 'አካዐውንት',
+  'btn.help': 'እውነተኛ እድገት',
+  'btn.language': 'ቋንቋ',
+  'btn.skip': 'ግነሳ',
+  'btn.confirm': 'ልዩት ክልኸብል',
+  'btn.cancel': 'ይሰርቡ',
+  'btn.back': 'ተመለሰ',
+  'btn.refresh': 'ዝግባ',
+  'btn.openTracking': 'ክትትል መከተል',
+  'btn.showQr': 'QR ኮድ',
+  'btn.register': 'ዝርዝር',
+  'btn.callSupport': 'ድጋፍ እምነት',
+  'btn.shareLocation': '📍 ስንሕ ስነ ስብራቕ',
+  'btn.openOrderForm': '🌐 ትዕዛዝ ቅዳም',
+  'btn.useWizard': '💬 ቦት ዝገበር',
+
+  welcome:
+    'በሰላም ወደ ዴሊቨር ኢትዮጵያ ደህና መጡ።\nበኢትዮጵያ ውስጥ በትንሽ ቦታ ፓርሴል ይፈጽሙ።',
+  welcomeBack: 'ደህና መጣልኩ፤ {name}.',
+  help:
+    'እድገት ተማኮት፦\n' +
+    '/neworder - ትዕዛዝ መወያያ\n' +
+    '/orders - ትዕዛዞችኹና\n' +
+    '/track <ቁጥር> - ትዕዛዝ ተግባር\n' +
+    '/register - መዝርዝር\n' +
+    '/link <phone> - ስም ለውጥና\n' +
+    '/me - ጽሑፍ ክልኸብ\n' +
+    '/language - ቋንቋ ምርመራ\n' +
+    '/cancel - መወያያ ይሰርቡ',
+  unknownCommand: 'እንደ ትንቢት ስራ ስም አይተባብርን እንዲሁም /help እስራት.',
+  cancelled: 'ተሰርቡ.',
+  notRegistered:
+    'Telegram ይህ ዴሊቨር ኢትዮጵያ አካዐውንት ኣለብኹ ኣብዚ እዩ። ንገበር ንኽርገይ /neworder ንኣኽር /link 0912345678.',
+  registeredAs: 'ኣብ {name} ናብዩ.',
+  mainMenu: 'ኣብዚ ኣብታ እንታይ ኣብዚ እንታይ?',
+  menuPlaceholder: 'ኣብዚ ነይሪ ምርመራ ወይም ዝግባ.',
+  locationPlaceholder: 'ስንሕ ስብራቕ ዝልቦ በለይ ኣብዚ ትኽልሉ...',
+
+  languageTitle: 'ቋንቋ ምርመራ:',
+  languageSet: 'ቋንቋ በትግርኛ ተረኽበይኩ ኣልኸው ኣበልዩ።',
+
+  askName: 'ስም እንታይ ንኹና?',
+  askPhone: 'ስልክ ቁጥር ተረኸልን ሓይሊ 0912345678:',
+  askAddress: 'ስንሕ ንኸውን ዘለዎ ወይም ግነሳ:',
+  registrationDone: 'መዝርዝር ተገለጸ። ንኽርገይ /neworder ኣብዚ ትዕዛዝ መወያያ.',
+  registrationFailed: 'መዝርዝር ኣይተረኸቡን: {reason}',
+  accountLinked: 'አካዐውንት ተለዋሕ። ኣብ {name} ናብዩ.',
+  accountLinkFailed: 'ኣብ ስልክ ቁጥሩ እዩ አካዐውንት ኣለብኹ.',
+  accountInUse:
+    'ስም ተለዋሕ እንዲኸኸይ ንኽረም። ዓይነት ኣስታድኤ ኣብ እንታይ.',
+  accountUnlinked: 'አካዐውንት ኣብ Telegram ኣለብኹ.',
+  noLinkedAccount: 'Telegram ይህ ኣካዐውንት ኣለብኹ.',
+  profileTitle: 'ጽሑፍ ክልኸብ',
+  nameLabel: 'ስም',
+  phoneLabel: 'ስልክ',
+  addressLabel: 'ስንሕ',
+  notSet: 'ኣይተረኸቡንን',
+
+  orderAskReceiverName: 'ስም ዘለዎ:',
+  orderAskReceiverPhone: 'ስልክ ቁጥር, ሓይሊ 0912345678:',
+  orderAskItem: 'ኣብዚ ስርኣት ንኽብሉ? እቃውን ዝገቡ:',
+  orderAskPhoto: '📸 ፎቶ ዝገቡ (2MB kuma), ወይም Skip qabdi:',
+  orderAskPhotoInvalid: 'ፎቶ ኣብዚ ኣለብኹ, Skip qabdi.',
+  orderPhotoUploading: '⏳ ፎቶ ምግብር መግለጽ...',
+  orderPhotoUploaded: '✅ ፎቶ ተረኸልን ({size})!',
+  orderPhotoUploadFailed: 'ፎቶ ኣይተረኸቡን. Image ንኻኣይ ይብል.',
+  orderAskWeight: 'ክብር በኪሎግራም, ሓይሊ 2.5:',
+  orderAskSenderLocation:
+    '📍 ስንሕ ስብራቕ ዘለዎ ይብል እንታይ.\nButton ዝልቦ qabdi.',
+  orderSenderLocationReceived: '✅ ስንሕ ዘለዉ ተረኸልን.',
+  orderSenderLocationSkipped: 'Address ኣብዚ ትብል።',
+  orderAskPaymentParty: 'Delivery fee ይምጥብል?',
+  paySender: 'እኔ ይጥብልኹ',
+  payReceiver: 'ተቀባይ ይጥብል',
+  orderConfirmTitle: 'ርእሰ ትዕዛዝ',
+  orderConfirmHint:
+    'ሓቂ fee ኣብ road ክልኸብል ኣለብኹ. ተቀባይ ንምእረጻ link.',
+  orderCreated:
+    'ትዕዛዝ ተገለጸ።\nTracking number: {tracking}\nFee estimated: {fee}\n\nTracking number ኣብ ተቀባይ ዘለዎ.',
+  orderCreateFailed: 'ትዕዛዝ ኣይተረኸቡን: {reason}',
+  noOrders: 'ንኽርገይ ትዕዛዝ ኣለብኹ. New order qabdi.',
+  ordersTitle: 'ትዕዛዞችኹና',
+  ordersPageOf: 'Page {page} kuma {pages}',
+  orderDetailsTitle: 'Hunda {tracking}',
+  senderLabel: 'Sender',
+  receiverLabel: 'Receiver',
+  itemLabel: 'Item',
+  photoLabel: 'Photo',
+  photoAttached: 'Qabeenyi',
+  feeLabel: 'Fee',
+  weightLabel: 'Galiin',
+  statusLabel: 'Status',
+  trackingLabel: 'Tracking',
+  courierLabel: 'Courier',
+  eventsTitle: 'Jirraan',
+  noEvents: 'Jirraan hin qabne.',
+  estimateFrom: 'fee {fee}',
+  orderQrPrompt: 'QR code kana qabdi, driver keessan.',
+  qrCodeNotFound: 'QR code hin qabne.',
+
+  trackAsk: 'Tracking number /track, Missoo /track ETH-2026-ABC123',
+  trackNotFound: 'Hundaa {number} hin qabne.',
+  trackTitle: 'Tracking {tracking}',
+
+  orderStatusPush: 'Order {tracking}\nStatus bishaan: {status}',
+
+  invalidPhone: 'ስልክ ቁጥሩ ትክክል ኣይተረኸቡን. 0912345678 ወይም +251912345678.',
+  invalidWeight: 'Weight number qabdi, 0.01 fi 5000.',
+  invalidName: '2 maqaa qabdi.',
+  invalidItem: 'Item magaalisa 2 maqaa qabdi.',
+  orderAskAddMoreItem: 'Item kana qabdi?',
+  'btn.addAnother': 'Item kana qabdi',
+  'btn.finishItems': 'Fiti & qabdi',
+  'itemsLabel': 'Items',
+  createOrderChoose: 'Hundaa how maali qabdame?',
+};
+
+const so: Dictionary = {
+  'btn.newOrder': 'Order cusub',
+  'btn.orders': 'Order-ka',
+  'btn.track': 'Talli',
+  'btn.account': 'Account',
+  'btn.help': 'Caawimaad',
+  'btn.language': 'Tilmaamaha',
+  'btn.skip': 'Furi',
+  'btn.confirm': 'Order-ku diyaar gal',
+  'btn.cancel': 'Keliya',
+  'btn.back': 'Maleh',
+  'btn.refresh': 'Marqaali',
+  'btn.openTracking': 'Talli open',
+  'btn.showQr': 'QR Code',
+  'btn.register': 'Kaydaha',
+  'btn.callSupport': 'Caawimaad diyaar',
+  'btn.shareLocation': '📍 Gaadiidka',
+  'btn.openOrderForm': '🌐 Form-ka order',
+  'btn.useWizard': '💬 Bot-ka isticlaal',
+
+  welcome:
+    'Nabad gelyo Deliver Ethiopia.\nWaxaad ula ordhantay Ethiopia muddo kasta.',
+  welcomeBack: 'Nabad gelyo, {name}.',
+  help:
+    'Caawimaad:\n' +
+    '/neworder - order cusub\n' +
+    '/orders - Order-ka\n' +
+    '/track <baha> - talli\n' +
+    '/register - account kaydo\n' +
+    '/link <phone> - account link\n' +
+    '/me - profile\n' +
+    '/language - tilmaamaha\n' +
+    '/cancel - keliya',
+  unknownCommand: 'Ma qofayna ma qabaa. /help caawin.',
+  cancelled: 'Keliya.',
+  notRegistered:
+    'Telegramgan Deliver Ethiopia account-ka ma qabaa.\n/neworder account cusub.',
+  registeredAs: 'Signed in as {name}.',
+  mainMenu: 'Maxay tahay aad u daray?',
+  menuPlaceholder: 'Masaar uu yahay...',
+  locationPlaceholder: 'Gaadiidka qabdi, furi qabdi:',
+
+  languageTitle: 'Tilmaamaha hel:',
+  languageSet: 'Tilmaamaha horey u qabtay.',
+
+  askName: 'Magaca barwaaqo qabdi:',
+  askPhone: 'Telefonka qabdi, Missoo 0912345678:',
+  askAddress: 'Xaafadda qabdi, furi qabdi:',
+  registrationDone: 'Kaydfalka buuxiyey. /neworder order cusub.',
+  registrationFailed: 'Kaydfalka ma qaaday: {reason}',
+  accountLinked: 'Account taaggii ka dhameystay. Yaada {name}.',
+  accountLinkFailed: 'Telefonka account ma qabaa.',
+  accountInUse:
+    'Account-ka Telegram kale u jiro. Gaadiidhaan ka dhacay.',
+  accountUnlinked: 'Account Telegram-ka furi qabtay.',
+  noLinkedAccount: 'Telegram-ka account ma qabaa.',
+  profileTitle: 'Profile-ka',
+  nameLabel: 'Magaca',
+  phoneLabel: 'Telefonka',
+  addressLabel: 'Xaafadda',
+  notSet: 'Ma qabaa',
+
+  orderAskReceiverName: 'Magaca receiver:',
+  orderAskReceiverPhone: 'Phone receiver, Missoo 0912345678:',
+  orderAskItem: 'Item waxaad diyaarinayaa? Item magaca qabdi:',
+  orderAskPhoto: '📸 Photo item qabdi (2MB kuma), furi qabdi:',
+  orderAskPhotoInvalid: 'Photo item qabdi, furi qabdi.',
+  orderPhotoUploading: '⏳ Photo upload qabdi...',
+  orderPhotoUploaded: '✅ Photo upload qabtay ({size})!',
+  orderPhotoUploadFailed: 'Photo ma qabay. Image kana qabdi.',
+  orderAskWeight: 'Weight qabdi, Missoo 2.5:',
+  orderAskSenderLocation:
+    '📍 Gaadiidka sender qabdi.\nButton qabdi.',
+  orderSenderLocationReceived: '✅ Gaadiidka qabtay.',
+  orderSenderLocationSkipped: 'Address qabdi.',
+  orderAskPaymentParty: 'Delivery fee maxay yaadhi doona?',
+  paySender: 'Aniga yaadhi doonay',
+  payReceiver: 'Receiver yaadhi doona',
+  orderConfirmTitle: 'Order-ka diyaar gal',
+  orderConfirmHint:
+    'Fee miti road-ka qaba. Receiver link gaadiidka.',
+  orderCreated:
+    'Order qabtay.\nTracking number: {tracking}\nFee estimated: {fee}\n\nTracking number receiver qabdi.',
+  orderCreateFailed: 'Order ma qabay: {reason}',
+  noOrders: 'Order ma qabaa. New order qabdi.',
+  ordersTitle: 'Order-ka',
+  ordersPageOf: 'Page {page} kuma {pages}',
+  orderDetailsTitle: 'Order {tracking}',
+  senderLabel: 'Sender',
+  receiverLabel: 'Receiver',
+  itemLabel: 'Item',
+  photoLabel: 'Photo',
+  photoAttached: 'Qabtay',
+  feeLabel: 'Fee',
+  weightLabel: 'Weight',
+  statusLabel: 'Status',
+  trackingLabel: 'Tracking',
+  courierLabel: 'Courier',
+  eventsTitle: 'Jirraan',
+  noEvents: 'Jirraan ma qabaa.',
+  estimateFrom: 'fee {fee}',
+  orderQrPrompt: 'QR code kana qabdi, driver keessan.',
+  qrCodeNotFound: 'QR code ma qabay.',
+
+  trackAsk: 'Tracking number /track, Missoo /track ETH-2026-ABC123',
+  trackNotFound: 'Hundaa {number} ma qabaa.',
+  trackTitle: 'Tracking {tracking}',
+
+  orderStatusPush: 'Order {tracking}\nStatus bishaan: {status}',
+
+  invalidPhone: 'Telefonka ma qabay. 0912345678 ykn +251912345678.',
+  invalidWeight: 'Weight number qabdi, 0.01 fi 5000.',
+  invalidName: '2 maqaa qabdi.',
+  invalidItem: 'Item magaalisa 2 maqaa qabdi.',
+  orderAskAddMoreItem: 'Item kana qabdi?',
+  'btn.addAnother': 'Item kana qabdi',
+  'btn.finishItems': 'Fiti & qabdi',
+  'itemsLabel': 'Items',
+  createOrderChoose: 'Order how maali qabdame?',
+};
 
 const STATUS_LABELS: Record<Lang, Record<OrderStatus, string>> = {
   en: {
@@ -388,10 +752,54 @@ const STATUS_LABELS: Record<Lang, Record<OrderStatus, string>> = {
     [OrderStatus.CANCELLED]: 'ተሰርዟል',
     [OrderStatus.RETURNED]: 'ተመላሽ ሆኗል',
   },
+  om: {
+    [OrderStatus.DRAFT]: 'Hunda',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga'aa barbaachisa',
+    [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
+    [OrderStatus.PAID]: 'Fee yaadhe',
+    [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
+    [OrderStatus.PICKED_UP]: 'Qabtay',
+    [OrderStatus.IN_TRANSIT]: 'Road keessa',
+    [OrderStatus.OUT_FOR_DELIVERY]: 'Delivery keessatti',
+    [OrderStatus.DELIVERED]: 'Delivery qabne',
+    [OrderStatus.FAILED]: 'Delivery hin qabne',
+    [OrderStatus.CANCELLED]: 'Waarutti',
+    [OrderStatus.RETURNED]: 'Ka dhuftee',
+  },
+  ti: {
+    [OrderStatus.DRAFT]: 'Hunda',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga'aa barbaachisa',
+    [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
+    [OrderStatus.PAID]: 'Fee yaadhe',
+    [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
+    [OrderStatus.PICKED_UP]: 'Qabtay',
+    [OrderStatus.IN_TRANSIT]: 'Road keessa',
+    [OrderStatus.OUT_FOR_DELIVERY]: 'Delivery keessatti',
+    [OrderStatus.DELIVERED]: 'Delivery qabne',
+    [OrderStatus.FAILED]: 'Delivery hin qabne',
+    [OrderStatus.CANCELLED]: 'Waarutti',
+    [OrderStatus.RETURNED]: 'Ka dhuftee',
+  },
+  so: {
+    [OrderStatus.DRAFT]: 'Hunda',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga'aa barbaachisa',
+    [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
+    [OrderStatus.PAID]: 'Fee yaadhe',
+    [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
+    [OrderStatus.PICKED_UP]: 'Qabtay',
+    [OrderStatus.IN_TRANSIT]: 'Road keessa',
+    [OrderStatus.OUT_FOR_DELIVERY]: 'Delivery keessatti',
+    [OrderStatus.DELIVERED]: 'Delivery qabne',
+    [OrderStatus.FAILED]: 'Delivery hin qabne',
+    [OrderStatus.CANCELLED]: 'Waarutti',
+    [OrderStatus.RETURNED]: 'Ka dhuftee',
+  },
 };
 
+const DICTIONARIES: Record<Lang, Dictionary> = { en, am, om, ti, so };
+
 export function isLang(value: string | undefined | null): value is Lang {
-  return value === 'en' || value === 'am';
+  return value === 'en' || value === 'am' || value === 'om' || value === 'ti' || value === 'so';
 }
 
 export function t(

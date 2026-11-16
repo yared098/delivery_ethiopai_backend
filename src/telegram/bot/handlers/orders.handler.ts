@@ -54,7 +54,26 @@ export class TelegramOrdersHandler {
     private readonly webApp: TelegramWebAppService,
   ) {}
 
-  // ══════════════════════════════════════════════════
+  /**
+   * Deletes the previous bot message (if any) stored in the session,
+   * then sends a new message and stores its message_id for next cleanup.
+   * This keeps the conversation clean — only the current prompt is visible.
+   */
+  private async clearAndSay(
+    ctx: BotContext,
+    text: string,
+    keyboard?: Record<string, unknown>,
+  ): Promise<void> {
+    const session = this.sessions.get(ctx.chatId);
+    const prevId = session.data.lastBotMessageId;
+    if (prevId) {
+      await this.telegramApi.deleteMessage(ctx.chatId, prevId).catch(() => {});
+    }
+    const messageId = await ctx.say(text, keyboard);
+    this.sessions.patchData(ctx.chatId, { lastBotMessageId: messageId });
+  }
+
+  // ═══════════════════════════════════════════════════
   // WIZARD
   // ══════════════════════════════════════════════════
   async startNewOrder(ctx: BotContext): Promise<void> {
