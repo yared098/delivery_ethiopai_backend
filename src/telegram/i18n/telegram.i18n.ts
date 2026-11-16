@@ -818,11 +818,10 @@ export function t(
   const dictionary = DICTIONARIES[lang] ?? DICTIONARIES[DEFAULT_LANG];
   const template = dictionary[key] ?? DICTIONARIES[DEFAULT_LANG][key] ?? key;
   if (!vars) return template;
-  return template.replace(/\\{(\\w+)\\}/g, (match, name: string) =>
+  return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     vars[name] !== undefined ? String(vars[name]) : match,
   );
 }
-
 export function statusLabel(lang: Lang, status: OrderStatus): string {
   return STATUS_LABELS[lang]?.[status] ?? STATUS_LABELS[DEFAULT_LANG][status] ?? status;
 }
