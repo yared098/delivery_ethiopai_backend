@@ -152,7 +152,7 @@ const STATUS_LABELS: Record<Lang, Record<OrderStatus, string>> = {
   },
   om: {
     [OrderStatus.DRAFT]: 'Hunda',
-    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\\'aa barbaachisa',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\'aa barbaachisa',
     [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
     [OrderStatus.PAID]: 'Fee yaadhe',
     [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
@@ -166,7 +166,7 @@ const STATUS_LABELS: Record<Lang, Record<OrderStatus, string>> = {
   },
   ti: {
     [OrderStatus.DRAFT]: 'Hunda',
-    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\\'aa barbaachisa',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\'aa barbaachisa',
     [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
     [OrderStatus.PAID]: 'Fee yaadhe',
     [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
@@ -180,7 +180,7 @@ const STATUS_LABELS: Record<Lang, Record<OrderStatus, string>> = {
   },
   so: {
     [OrderStatus.DRAFT]: 'Hunda',
-    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\\'aa barbaachisa',
+    [OrderStatus.AWAITING_RECEIVER_LOCATION]: 'Ga\'aa barbaachisa',
     [OrderStatus.PENDING_PAYMENT]: 'Fee barbaachisa',
     [OrderStatus.PAID]: 'Fee yaadhe',
     [OrderStatus.ASSIGNED]: 'Courier qabeenyi',
@@ -446,13 +446,13 @@ const om: Dictionary = {
   'btn.skip': 'Fufudha',
   'btn.confirm': 'Hundaa ammas jiru',
   'btn.cancel': 'Waarudha',
-  'btn.back': 'Kan danda\\'u',
+  'btn.back': 'Kan danda\'u',
   'btn.refresh': 'Keessetti',
   'btn.openTracking': 'Nuqamsee baha',
   'btn.showQr': 'QR Code',
   'btn.register': 'Qabeenyuu',
   'btn.callSupport': 'Gaaddidhaanii keessan',
-  'btn.shareLocation': '📍 Ga\\'aa kana jira',
+  'btn.shareLocation': '📍 Ga\'aa kana jira',
   'btn.openOrderForm': '🌐 Form hundaa',
   'btn.useWizard': '💬 Botii keessatti qabe',
 
@@ -476,7 +476,7 @@ const om: Dictionary = {
   registeredAs: '{name} akka yaada.',
   mainMenu: 'Maali maqaa keessatti darbe?',
   menuPlaceholder: 'Masaara bixadhu yaada yaala...',
-  locationPlaceholder: 'Button kana qabdi ga\\'aa jira, fufudha qabdi...',
+  locationPlaceholder: 'Button kana qabdi ga\'aa jira, fufudha qabdi...',
 
   languageTitle: 'Tilammaa bixadhu:',
   languageSet: 'Tilammaa keella hojjate.',
@@ -484,8 +484,8 @@ const om: Dictionary = {
   askName: 'Magala barbaachisa qabdi:',
   askPhone: 'Phone qabdi, Missoo 0912345678:',
   askAddress: 'Address qabdi, fufudha qabdi:',
-  registrationDone: 'Registration baay\\'ee. /neworder keessatti hundaa sanyii.',
-  registrationFailed: 'Registration hin baay\\'ne: {reason}',
+  registrationDone: 'Registration baay\'ee. /neworder keessatti hundaa sanyii.',
+  registrationFailed: 'Registration hin baay\'ne: {reason}',
   accountLinked: 'Account taassisi. Yaada {name}.',
   accountLinkFailed: 'Phone kana keessatti account hin taane.',
   accountInUse:
@@ -508,8 +508,8 @@ const om: Dictionary = {
   orderPhotoUploadFailed: 'Photo hin qabne. Image kana qabdi.',
   orderAskWeight: 'Galiin keessa, Missoo 2.5:',
   orderAskSenderLocation:
-    '📍 Ga\\'aa keessanitti barbaachiisa qabdi.\\nButton kana qabdi.',
-  orderSenderLocationReceived: '✅ Ga\\'aa keessan qabne.',
+    '📍 Ga\'aa keessanitti barbaachiisa qabdi.\\nButton kana qabdi.',
+  orderSenderLocationReceived: '✅ Ga\'aa keessan qabne.',
   orderSenderLocationSkipped: 'Address keessan qabdi.',
   orderAskPaymentParty: 'Delivery fee kan maali yaadhe?',
   paySender: 'Ani yaadhe',

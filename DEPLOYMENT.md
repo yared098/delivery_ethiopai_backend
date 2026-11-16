@@ -111,3 +111,35 @@ docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB
 ```
 
 The `postgres_data`, `redis_data`, and `uploads_data` volumes persist across `docker compose down` and container rebuilds. Do not use `docker compose down -v` unless you intend to permanently delete the database, Redis data, and uploaded files.
+
+
+
+
+# fast deployemen ieth out docker 
+
+
+# 1. Stop by name (safe if not running)
+pm2 stop delivery-ethiopia-api 2>/dev/null || true
+
+# 2. Clean old build
+rm -rf dist
+
+# 3. Compile with tsc directly (no pnpm/nest child spawn → no EAGAIN)
+RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=512" \
+  ./node_modules/.bin/tsc -p tsconfig.json --outDir dist
+
+# 4. Rewrite src/... path aliases
+./node_modules/.bin/tsc-alias -p tsconfig.json
+
+# 5. Sanity check
+ls -la dist/src/main.js || { echo "❌ BUILD FAILED — do not restart"; exit 1; }
+
+# 6. Restart (delete by name, not id)
+pm2 delete delivery-ethiopia-api 2>/dev/null || true
+pm2 start dist/src/main.js --name delivery-ethiopia-api --cwd "$PWD"
+pm2 save
+
+# 7. Verify
+sleep 3
+pm2 status
+pm2 logs delivery-ethiopia-api --lines 30 --nostream
