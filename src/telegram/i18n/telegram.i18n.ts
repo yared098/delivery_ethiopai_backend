@@ -231,9 +231,9 @@ const en: Dictionary = {
   invalidName: 'Send at least 2 characters.',
   invalidItem: 'Describe the item in at least 2 characters.',
   orderAskAddMoreItem: 'Add another item?',
-  btn.addAnother: 'Add another item',
-  btn.finishItems: 'Finish & continue',
-  itemsLabel: 'Items',
+  'btn.addAnother': 'Add another item',
+  'btn.finishItems': 'Finish & continue',
+  'itemsLabel': 'Items',
   createOrderChoose: 'How would you like to create your order?',
 };
 
@@ -351,9 +351,9 @@ const am: Dictionary = {
   invalidName: 'ቢያንስ 2 ፊደሎች ይላኩ።',
   invalidItem: 'እቃውን ቢያንስ በ2 ፊደሎች ይግለጹ።',
   orderAskAddMoreItem: 'የቀላሉ እቃ አድርገዋል?',
-  btn.addAnother: 'የቀላሉ እቃ አድርግ',
-  btn.finishItems: 'ዝግባ ይቀረጡ',
-  itemsLabel: 'እቃዎች',
+  'btn.addAnother': 'የቀላሉ እቃ አድርግ',
+  'btn.finishItems': 'ዝግባ ይቀረጡ',
+  'itemsLabel': 'እቃዎች',
   createOrderChoose: 'ትዕዛዝዋን እንዴት መፍጠር ይፈልጋሉ?',
 };
 
