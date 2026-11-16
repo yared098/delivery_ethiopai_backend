@@ -25,21 +25,32 @@ async function bootstrap() {
   //   allowedHeaders: ['Content-Type', 'Authorization'],
   // }); 
 
-  app.enableCors({
+ app.enableCors({
   origin: [
-    // Vercel — stable alias (this is the one that must match)
+    // ── Customer form (Vercel) ──
     'https://truest-express-form.vercel.app',
-    // All preview deployments (hashed subdomains)
-    /^https:\/\/truest-express-form[\w-]+\.vercel\.app$/,
-    // Backend itself (legacy form + admin)
+    /^https:\/\/truest-express-form[\w-]*\.vercel\.app$/,
+
+    // ── Admin dashboard (production) ──
+    'https://truestethiopian.smrestaurant.com',
+    'https://admin.truestexpress.smrestaurant.com',
+    'https://truestexpress.smrestaurant.com',
+
+    // ── Backend itself (legacy form + admin tools) ──
     'https://api.truestexpress.smrestaurant.com',
-    // Local dev
+
+    // ── Local dev ──
     'http://localhost:5173',
     'http://localhost:3000',
+    'http://localhost:5174',
+    'http://localhost:8080',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Kuma-Revision'],
   maxAge: 86400,
 });
 
