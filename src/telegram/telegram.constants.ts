@@ -1,6 +1,7 @@
 export const TELEGRAM_API_BASE = 'https://api.telegram.org';
 export const TELEGRAM_CALL_TIMEOUT_MS = 15_000;
 export const TELEGRAM_POLL_TIMEOUT_SEC = 25;
+export const TELEGRAM_POLL_HTTP_TIMEOUT_MS = (TELEGRAM_POLL_TIMEOUT_SEC + 10) * 1_000;
 export const TELEGRAM_POLL_BACKOFF_MS = 3_000;
 export const TELEGRAM_MAX_MESSAGE_LENGTH = 4_096;
 export const TELEGRAM_SAFE_CHUNK_LENGTH = 3_800;

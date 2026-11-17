@@ -143,7 +143,9 @@ RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=512"
 # 4. Confirm the compiled entry point exists before touching the database
 test -f dist/src/main.js || { echo "BUILD FAILED; do not restart"; exit 1; }
 
-# 5. Apply pending production database migrations
+# 5. Apply pending production database migrations. DATABASE_URL must point to
+#    the same production database used by the PM2 application, not localhost
+#    unless PostgreSQL is actually running on this server.
 ./node_modules/.bin/prisma migrate deploy
 
 # 6. Restart the API by process name

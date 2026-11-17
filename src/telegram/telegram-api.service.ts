@@ -4,6 +4,7 @@ import axios, { AxiosInstance } from 'axios';
 import {
   TELEGRAM_API_BASE,
   TELEGRAM_CALL_TIMEOUT_MS,
+  TELEGRAM_POLL_HTTP_TIMEOUT_MS,
   TELEGRAM_SAFE_CHUNK_LENGTH,
 } from './telegram.constants';
 
@@ -126,6 +127,9 @@ export class TelegramApiService {
       const res = await this.http.post<TelegramApiResult<T>>(
         `/bot${token}/${method}`,
         payload,
+        method === 'getUpdates'
+          ? { timeout: TELEGRAM_POLL_HTTP_TIMEOUT_MS }
+          : undefined,
       );
       if (!res.data?.ok) {
         this.logger.error(
