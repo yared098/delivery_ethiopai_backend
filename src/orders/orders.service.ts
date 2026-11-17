@@ -1735,17 +1735,28 @@ async warehouseInventory(query: WarehouseQueryDto, currentUser: any) {
     OrderStatus.OUT_FOR_DELIVERY,
     OrderStatus.DELIVERED,
   ];
+  const departedAfterWarehouseScanStatuses: OrderStatus[] = [
+    OrderStatus.PICKED_UP,
+    OrderStatus.IN_TRANSIT,
+    OrderStatus.DELIVERED,
+  ];
 
   const classify = (order: any, lastEvent: any): string => {
     const eventType = this.getWarehouseEventType(lastEvent?.note);
     const hasLeftOrigin = postPickupStatuses.includes(order.status);
+    // Destination scan-in also sets OUT_FOR_DELIVERY, before a courier dispatch.
+    const hasDepartedAfterWarehouseScan = departedAfterWarehouseScanStatuses.includes(
+      order.status,
+    );
 
     if (eventType === 'SCAN_IN') {
-      if (isSuperAdmin) return hasLeftOrigin ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+      if (isSuperAdmin) {
+        return hasDepartedAfterWarehouseScan ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+      }
       const isMyOrigin = order.originBranchId === myBranchId;
       const isMyDest = order.destBranchId === myBranchId;
       if (!isMyOrigin && !isMyDest) return 'NOT_MINE';
-      return hasLeftOrigin ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+      return hasDepartedAfterWarehouseScan ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
     }
 
     if (eventType === 'SCAN_OUT') {
