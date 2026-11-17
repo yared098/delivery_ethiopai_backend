@@ -1300,6 +1300,38 @@ export class OrdersService {
   // ══════════════════════════════════════════════════
   // STAFF SCAN-LOOKUP (Preview order details upon QR scan)
   // ══════════════════════════════════════════════════
+  private makeWarehouseEventNote(
+    type: 'IN' | 'OUT',
+    note?: string | null,
+  ): string {
+    const clean = (note ?? '').trim();
+    return clean ? `[WAREHOUSE:${type}] ${clean}` : `[WAREHOUSE:${type}]`;
+  }
+
+  private getWarehouseEventType(
+    note?: string | null,
+  ): 'SCAN_IN' | 'SCAN_OUT' | 'OTHER' {
+    const text = (note ?? '').trim();
+    if (!text) return 'OTHER';
+
+    const normalized = text.toLowerCase();
+    if (normalized.startsWith('[warehouse:in]')) return 'SCAN_IN';
+    if (normalized.startsWith('[warehouse:out]')) return 'SCAN_OUT';
+    if (
+      normalized.startsWith('received at') ||
+      normalized.startsWith('arrived at')
+    ) {
+      return 'SCAN_IN';
+    }
+    if (
+      normalized.startsWith('dispatched') ||
+      normalized.startsWith('handed over')
+    ) {
+      return 'SCAN_OUT';
+    }
+    return 'OTHER';
+  }
+
   async staffScanLookup(dto: StaffScanInDto, currentUser: any) {
     const order = await this.resolveOrderFromScan({
       code: dto.code,
@@ -1375,11 +1407,13 @@ export class OrdersService {
       ? (order.status === OrderStatus.DRAFT ? OrderStatus.PENDING_PAYMENT : order.status)
       : OrderStatus.OUT_FOR_DELIVERY;
 
-    const eventNote =
-      dto.note ??
-      (isOriginIntake
-        ? `Received at ${branchName} (${cityName}) by ${staff.name} — ready for driver pickup`
-        : `Arrived at ${branchName} (${cityName}) and held by ${staff.name} — ready for customer pickup or dispatch`);
+    const defaultWarehouseNote = isOriginIntake
+      ? `Received at ${branchName} (${cityName}) by ${staff.name} — ready for driver pickup`
+      : `Arrived at ${branchName} (${cityName}) and held by ${staff.name} — ready for customer pickup or dispatch`;
+    const eventNote = this.makeWarehouseEventNote(
+      'IN',
+      dto.note ?? defaultWarehouseNote,
+    );
 
     // If destination warehouse scans and destBranchId wasn't set, assign it
     let targetDestBranchId = order.destBranchId;
@@ -1703,30 +1737,23 @@ async warehouseInventory(query: WarehouseQueryDto, currentUser: any) {
   ];
 
   const classify = (order: any, lastEvent: any): string => {
-    const note = lastEvent?.note ?? '';
-
-    const isOriginIntake = note.startsWith('Received at');
-    const isDestArrival  = note.startsWith('Arrived at');
-    const isDispatched   = note.startsWith('Dispatched');
-    const isHandedOver   = note.startsWith('Handed over');
-
+    const eventType = this.getWarehouseEventType(lastEvent?.note);
     const hasLeftOrigin = postPickupStatuses.includes(order.status);
 
-    if (isOriginIntake) {
+    if (eventType === 'SCAN_IN') {
       if (isSuperAdmin) return hasLeftOrigin ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
       const isMyOrigin = order.originBranchId === myBranchId;
-      if (!isMyOrigin) return 'NOT_MINE';
+      const isMyDest = order.destBranchId === myBranchId;
+      if (!isMyOrigin && !isMyDest) return 'NOT_MINE';
       return hasLeftOrigin ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
     }
 
-    if (isDestArrival) {
-      if (isSuperAdmin) return 'IN_WAREHOUSE';
-      return order.destBranchId === myBranchId ? 'IN_WAREHOUSE' : 'NOT_MINE';
-    }
-
-    if (isDispatched || isHandedOver) {
+    if (eventType === 'SCAN_OUT') {
       if (isSuperAdmin) return 'LEFT_WAREHOUSE';
-      return order.destBranchId === myBranchId ? 'LEFT_WAREHOUSE' : 'NOT_MINE';
+      if (order.destBranchId === myBranchId || order.originBranchId === myBranchId) {
+        return 'LEFT_WAREHOUSE';
+      }
+      return 'NOT_MINE';
     }
 
     // No scan-in/out yet — fall back to "created at my branch, not picked up"
@@ -1806,6 +1833,8 @@ async warehouseHistory(query: WarehouseHistoryQueryDto, currentUser: any) {
   const where: any = {
     actorType: 'STAFF',
     OR: [
+      { note: { startsWith: '[WAREHOUSE:IN]' } },
+      { note: { startsWith: '[WAREHOUSE:OUT]' } },
       { note: { startsWith: 'Received at' } },
       { note: { startsWith: 'Arrived at' } },
       { note: { startsWith: 'Dispatched' } },
@@ -1851,11 +1880,7 @@ async warehouseHistory(query: WarehouseHistoryQueryDto, currentUser: any) {
   ]);
 
   const enriched = data.map((e) => {
-    const n = e.note ?? '';
-    const kind =
-      n.startsWith('Received at') || n.startsWith('Arrived at') ? 'SCAN_IN'
-      : n.startsWith('Dispatched')  || n.startsWith('Handed over') ? 'SCAN_OUT'
-      : 'OTHER';
+    const kind = this.getWarehouseEventType(e.note);
     return { ...e, kind };
   });
 
@@ -1907,6 +1932,7 @@ async warehouseStats(currentUser: any) {
         actorType: 'STAFF',
         createdAt: { gte: startOfDay },
         OR: [
+          { note: { startsWith: '[WAREHOUSE:IN]' } },
           { note: { startsWith: 'Received at' } },
           { note: { startsWith: 'Arrived at' } },
         ],
@@ -1918,6 +1944,7 @@ async warehouseStats(currentUser: any) {
         actorType: 'STAFF',
         createdAt: { gte: startOfDay },
         OR: [
+          { note: { startsWith: '[WAREHOUSE:OUT]' } },
           { note: { startsWith: 'Dispatched' } },
           { note: { startsWith: 'Handed over' } },
         ],
@@ -1957,18 +1984,17 @@ async warehouseStats(currentUser: any) {
   ];
 
   const isInWarehouse = (o: any) => {
-    const note = o.events[0]?.note ?? '';
-    const isOriginIntake = note.startsWith('Received at');
-    const isDestArrival  = note.startsWith('Arrived at');
+    const eventType = this.getWarehouseEventType(o.events[0]?.note);
     const hasLeft = postPickupStatuses.includes(o.status);
 
-    if (isOriginIntake) {
+    if (eventType === 'SCAN_IN') {
       if (isSuperAdmin) return !hasLeft;
-      return o.originBranchId === myBranchId && !hasLeft;
+      if (o.originBranchId === myBranchId) return !hasLeft;
+      if (o.destBranchId === myBranchId) return true;
+      return false;
     }
-    if (isDestArrival) {
-      if (isSuperAdmin) return true;
-      return o.destBranchId === myBranchId;
+    if (eventType === 'SCAN_OUT') {
+      return false;
     }
     // No scan-in yet
     if (isSuperAdmin) return false;
@@ -2050,9 +2076,11 @@ async warehouseStats(currentUser: any) {
           },
         });
 
-        const eventNote =
-          dto.note ??
-          `Handed over to receiver at ${branchName} (${cityName}) by ${staff.name}`;
+        const defaultWarehouseNote = `Handed over to receiver at ${branchName} (${cityName}) by ${staff.name}`;
+        const eventNote = this.makeWarehouseEventNote(
+          'OUT',
+          dto.note ?? defaultWarehouseNote,
+        );
         await tx.orderEvent.create({
           data: {
             orderId: order.id,
@@ -2212,9 +2240,11 @@ async warehouseStats(currentUser: any) {
           },
         });
 
-        const eventNote =
-          dto.note ??
-          `Dispatched to last-mile courier ${courier.name} at ${branchName} (${cityName}) by ${staff.name}`;
+        const defaultWarehouseNote = `Dispatched to last-mile courier ${courier.name} at ${branchName} (${cityName}) by ${staff.name}`;
+        const eventNote = this.makeWarehouseEventNote(
+          'OUT',
+          dto.note ?? defaultWarehouseNote,
+        );
         await tx.orderEvent.create({
           data: {
             orderId: order.id,
