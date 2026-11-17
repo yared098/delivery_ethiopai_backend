@@ -1549,6 +1549,16 @@ export class OrdersService {
       });
     }
 
+    const inventory = await this.warehouseInventory(
+      {
+        state: 'all',
+        branchId: staff.branchId ?? undefined,
+        page: 1,
+        limit: 50,
+      },
+      currentUser,
+    );
+
     return {
       success: true,
       action: isOriginIntake ? 'origin_intake' : 'destination_arrival',
@@ -1567,6 +1577,12 @@ export class OrdersService {
         receiverPhone: updated.receiverPhone,
         senderName: updated.senderName,
         senderPhone: updated.senderPhone,
+      },
+      warehouseInventory: inventory.data,
+      warehouseCounts: {
+        total: inventory.total,
+        inWarehouse: inventory.inWarehouse,
+        leftWarehouse: inventory.leftWarehouse,
       },
       message: isOriginIntake
         ? `Order ${order.trackingNumber} received at ${branchName} by ${staff.name}`
@@ -1735,28 +1751,35 @@ async warehouseInventory(query: WarehouseQueryDto, currentUser: any) {
     OrderStatus.OUT_FOR_DELIVERY,
     OrderStatus.DELIVERED,
   ];
-  const departedAfterWarehouseScanStatuses: OrderStatus[] = [
-    OrderStatus.PICKED_UP,
-    OrderStatus.IN_TRANSIT,
-    OrderStatus.DELIVERED,
-  ];
-
   const classify = (order: any, lastEvent: any): string => {
     const eventType = this.getWarehouseEventType(lastEvent?.note);
     const hasLeftOrigin = postPickupStatuses.includes(order.status);
-    // Destination scan-in also sets OUT_FOR_DELIVERY, before a courier dispatch.
-    const hasDepartedAfterWarehouseScan = departedAfterWarehouseScanStatuses.includes(
-      order.status,
-    );
+    const isFinalized = [
+      OrderStatus.DELIVERED,
+      OrderStatus.CANCELLED,
+      OrderStatus.RETURNED,
+      OrderStatus.FAILED,
+    ].includes(order.status);
 
     if (eventType === 'SCAN_IN') {
+      if (isFinalized) return 'LEFT_WAREHOUSE';
       if (isSuperAdmin) {
-        return hasDepartedAfterWarehouseScan ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+        return [
+          OrderStatus.PICKED_UP,
+          OrderStatus.IN_TRANSIT,
+        ].includes(order.status)
+          ? 'LEFT_WAREHOUSE'
+          : 'IN_WAREHOUSE';
       }
       const isMyOrigin = order.originBranchId === myBranchId;
       const isMyDest = order.destBranchId === myBranchId;
       if (!isMyOrigin && !isMyDest) return 'NOT_MINE';
-      return hasDepartedAfterWarehouseScan ? 'LEFT_WAREHOUSE' : 'IN_WAREHOUSE';
+      return [
+        OrderStatus.PICKED_UP,
+        OrderStatus.IN_TRANSIT,
+      ].includes(order.status)
+        ? 'LEFT_WAREHOUSE'
+        : 'IN_WAREHOUSE';
     }
 
     if (eventType === 'SCAN_OUT') {
@@ -2189,6 +2212,16 @@ async warehouseStats(currentUser: any) {
         },
       });
 
+      const inventory = await this.warehouseInventory(
+        {
+          state: 'all',
+          branchId: staff.branchId ?? undefined,
+          page: 1,
+          limit: 50,
+        },
+        currentUser,
+      );
+
       return {
         success: true,
         action: StaffScanOutAction.HANDOVER,
@@ -2207,6 +2240,12 @@ async warehouseStats(currentUser: any) {
           receiverPhone: updated.receiverPhone,
           senderName: updated.senderName,
           senderPhone: updated.senderPhone,
+        },
+        warehouseInventory: inventory.data,
+        warehouseCounts: {
+          total: inventory.total,
+          inWarehouse: inventory.inWarehouse,
+          leftWarehouse: inventory.leftWarehouse,
         },
         message: `Order ${order.trackingNumber} handed over to receiver at ${branchName} by ${staff.name}`,
       };
@@ -2344,6 +2383,16 @@ async warehouseStats(currentUser: any) {
         },
       });
 
+      const inventory = await this.warehouseInventory(
+        {
+          state: 'all',
+          branchId: staff.branchId ?? undefined,
+          page: 1,
+          limit: 50,
+        },
+        currentUser,
+      );
+
       return {
         success: true,
         action: StaffScanOutAction.DISPATCH,
@@ -2364,6 +2413,12 @@ async warehouseStats(currentUser: any) {
           senderPhone: updated.senderPhone,
         },
         courier: { id: courier.id, name: courier.name, phone: courier.phone },
+        warehouseInventory: inventory.data,
+        warehouseCounts: {
+          total: inventory.total,
+          inWarehouse: inventory.inWarehouse,
+          leftWarehouse: inventory.leftWarehouse,
+        },
         message: `Order ${order.trackingNumber} dispatched to last-mile courier ${courier.name}`,
       };
     }
