@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { AccountType } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { Redis } from 'ioredis';
+import { TelegramApiService } from '../telegram/telegram-api.service';
 
 @Injectable()
 export class OtpService implements OnModuleDestroy {
@@ -20,6 +21,7 @@ export class OtpService implements OnModuleDestroy {
     private prisma: PrismaService,
     private sms: AfroMessageService,
     private config: ConfigService,
+    private telegram: TelegramApiService,
   ) {
     this.redis = new Redis(this.config.get<string>('REDIS_URL')!);
   }
@@ -41,7 +43,7 @@ export class OtpService implements OnModuleDestroy {
     accountType: AccountType,
     purpose = 'login',
     extraIds: { staffId?: string; courierId?: string } = {},
-  ): Promise<void> {
+  ): Promise<'telegram' | 'sms'> {
     const phone = this.normalizePhone(rawPhone);
 
     const limit = Number(this.config.get('OTP_RATE_LIMIT_PER_10MIN') || 3);
@@ -77,8 +79,43 @@ export class OtpService implements OnModuleDestroy {
       },
     });
 
+    if (accountType === AccountType.CUSTOMER) {
+      const customer = await this.prisma.customer.findUnique({
+        where: { phone },
+        select: { telegramId: true, telegramOtpEnabled: true },
+      });
+      if (
+        customer?.telegramId &&
+        customer.telegramOtpEnabled &&
+        this.telegram.isConfigured
+      ) {
+        const telegramMessage = await this.telegram.sendMessage(
+          customer.telegramId,
+          `Your Deliver Ethiopia verification code is ${code}. It expires in ${Math.ceil(ttl / 60)} minutes. Do not share this code.`,
+        );
+        if (telegramMessage !== null) return 'telegram';
+      }
+    } else if (accountType === AccountType.COURIER && extraIds.courierId) {
+      const courier = await this.prisma.courier.findUnique({
+        where: { id: extraIds.courierId },
+        select: { telegramId: true, telegramOtpEnabled: true },
+      });
+      if (
+        courier?.telegramId &&
+        courier.telegramOtpEnabled &&
+        this.telegram.isConfigured
+      ) {
+        const telegramMessage = await this.telegram.sendMessage(
+          courier.telegramId,
+          `Your Deliver Ethiopia verification code is ${code}. It expires in ${Math.ceil(ttl / 60)} minutes. Do not share this code.`,
+        );
+        if (telegramMessage !== null) return 'telegram';
+      }
+    }
+
     const sent = await this.sms.sendOtp(phone, code);
     if (!sent) throw new BadRequestException('Failed to send OTP');
+    return 'sms';
   }
 
   async verifyOtp(

@@ -204,6 +204,11 @@ export class NotificationsService {
       this.logger.error(`Failed to save notification: ${e.message}`);
     }
 
+    void this.telegram.notifyCourierId(
+      courierId,
+      `${payload.title}\n\n${payload.body}`,
+    );
+
     // Send push via existing method
     return this.sendToAccount('COURIER', courierId, {
       title: payload.title,
@@ -328,6 +333,13 @@ export class NotificationsService {
           }`,
         );
       });
+
+    if (order.courierId) {
+      void this.telegram.notifyCourierId(
+        order.courierId,
+        `Delivery update for ${order.trackingNumber}: ${order.status.replace(/_/g, ' ').toLowerCase()}.`,
+      );
+    }
 
     const data: Record<string, string> = {
       type: 'ORDER_STATUS',

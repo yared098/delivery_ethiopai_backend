@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, GoneException, Injectable } from '@nestjs/common';
 import { Customer, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TelegramSessionService } from '../../telegram-session.service';
@@ -6,16 +6,22 @@ import { t } from '../../i18n/telegram.i18n';
 import { normalizeEthiopianPhone } from '../../../common/utils/phone.util';
 import { BotContext } from '../bot-context';
 import { mainMenuKeyboard, REMOVE_KEYBOARD } from '../keyboards';
+import { TelegramAccountLinkService } from '../../telegram-account-link.service';
 
 @Injectable()
 export class TelegramAccountHandler {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessions: TelegramSessionService,
+    private readonly accountLink: TelegramAccountLinkService,
   ) {}
 
   async findCustomer(chatId: string): Promise<Customer | null> {
     return this.prisma.customer.findUnique({ where: { telegramId: chatId } });
+  }
+
+  async findCourier(chatId: string) {
+    return this.prisma.courier.findUnique({ where: { telegramId: chatId } });
   }
 
   /** Returns the linked customer, or replies with the "not registered" hint. */
@@ -53,39 +59,50 @@ export class TelegramAccountHandler {
 
   async unlink(ctx: BotContext): Promise<void> {
     const customer = await this.findCustomer(ctx.chatId);
-    if (!customer) {
+    if (customer) {
+      await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: { telegramId: null, telegramOtpEnabled: false },
+      });
+      await ctx.say(t(ctx.lang, 'accountUnlinked'), mainMenuKeyboard(ctx.lang));
+      return;
+    }
+
+    const courier = await this.findCourier(ctx.chatId);
+    if (!courier) {
       await ctx.say(t(ctx.lang, 'noLinkedAccount'));
       return;
     }
-    await this.prisma.customer.update({
-      where: { id: customer.id },
-      data: { telegramId: null },
+    await this.prisma.courier.update({
+      where: { id: courier.id },
+      data: { telegramId: null, telegramOtpEnabled: false },
     });
     await ctx.say(t(ctx.lang, 'accountUnlinked'), mainMenuKeyboard(ctx.lang));
   }
 
-  async link(ctx: BotContext, rawPhone: string): Promise<void> {
-    const phone = normalizeEthiopianPhone(rawPhone);
-    if (!phone) {
-      await ctx.say(t(ctx.lang, 'invalidPhone'));
-      return;
-    }
-
-    const customer = await this.prisma.customer.findUnique({ where: { phone } });
-    if (!customer) {
-      await ctx.say(t(ctx.lang, 'accountLinkFailed'));
-      return;
-    }
-    if (customer.telegramId && customer.telegramId !== ctx.chatId) {
-      await ctx.say(t(ctx.lang, 'accountInUse'));
-      return;
-    }
-
-    await this.attachTelegram(customer.id, ctx.chatId);
+  async promptAppLink(ctx: BotContext): Promise<void> {
     await ctx.say(
-      t(ctx.lang, 'accountLinked', { name: customer.name ?? phone }),
+      'To securely connect Telegram, open the Deliver Ethiopia mobile app, go to account settings, and tap “Connect Telegram”.',
       mainMenuKeyboard(ctx.lang),
     );
+  }
+
+  async completeAppLink(ctx: BotContext, token: string): Promise<void> {
+    try {
+      const linked = await this.accountLink.completeLink(token, ctx.chatId);
+      await ctx.say(
+        t(ctx.lang, 'accountLinked', { name: linked.name ?? linked.accountType }),
+        mainMenuKeyboard(ctx.lang),
+      );
+    } catch (error) {
+      const message =
+        error instanceof ConflictException
+          ? t(ctx.lang, 'accountInUse')
+          : error instanceof GoneException
+            ? 'This connection link has expired. Return to the mobile app and create a new one.'
+            : 'Could not connect Telegram. Please try again from the mobile app.';
+      await ctx.say(message, mainMenuKeyboard(ctx.lang));
+    }
   }
 
   /** Drives the `register:*` steps. Returns true when the text was consumed. */
@@ -140,9 +157,8 @@ export class TelegramAccountHandler {
           await ctx.say(t(ctx.lang, 'accountInUse'));
           return;
         }
-        await this.attachTelegram(existing.id, ctx.chatId);
         await ctx.say(
-          t(ctx.lang, 'accountLinked', { name: existing.name ?? name }),
+          'This phone already has an account. Sign in to the mobile app and use Connect Telegram to securely link this chat.',
           mainMenuKeyboard(ctx.lang),
         );
         return;
@@ -169,15 +185,4 @@ export class TelegramAccountHandler {
     }
   }
 
-  private async attachTelegram(customerId: string, chatId: string): Promise<void> {
-    // telegramId is unique: free this chat from any other account first.
-    await this.prisma.customer.updateMany({
-      where: { telegramId: chatId, NOT: { id: customerId } },
-      data: { telegramId: null },
-    });
-    await this.prisma.customer.update({
-      where: { id: customerId },
-      data: { telegramId: chatId },
-    });
-  }
 }

@@ -35,7 +35,7 @@ export const BOT_COMMANDS = [
   { command: 'qr', description: 'Show pickup QR code for driver' },
   { command: 'track', description: 'Track an order: /track ETH-2026-XXXXXX' },
   { command: 'register', description: 'Create an account' },
-  { command: 'link', description: 'Link account: /link 0912345678' },
+  { command: 'link', description: 'Connect account from the mobile app' },
   { command: 'me', description: 'My profile' },
   { command: 'language', description: 'Change language' },
   { command: 'help', description: 'Help' },

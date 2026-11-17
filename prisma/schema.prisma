@@ -263,6 +263,8 @@ model Courier {
 
   isActive      Boolean   @default(true)
   phoneVerified Boolean   @default(false)
+  telegramId    String?   @unique
+  telegramOtpEnabled Boolean   @default(false)
   suspendedAt   DateTime?
   suspendedById String?
 
@@ -310,15 +312,16 @@ model Courier {
 // ══════════════════════════════════════════════════
 
 model Customer {
-  id            String  @id @default(cuid())
-  phone         String  @unique
-  name          String?
-  email         String? @unique
-  googleId      String? @unique
-  telegramId    String? @unique
-  phoneVerified Boolean @default(false)
-  emailVerified Boolean @default(false)
-  isActive      Boolean @default(true)
+  id                 String  @id @default(cuid())
+  phone              String  @unique
+  name               String?
+  email              String? @unique
+  googleId           String? @unique
+  telegramId         String? @unique
+  telegramOtpEnabled Boolean @default(false)
+  phoneVerified      Boolean @default(false)
+  emailVerified      Boolean @default(false)
+  isActive           Boolean @default(true)
 
   defaultAddress String?
   defaultLat     Float?

@@ -181,6 +181,10 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
 
     switch (action) {
       case 'start':
+        if (args[0]?.startsWith('link_')) {
+          await this.account.completeAppLink(ctx, args[0].slice(5));
+          return;
+        }
         await this.sendWelcome(ctx);
         return;
       case 'help':
@@ -190,11 +194,7 @@ export class TelegramBotService implements OnModuleInit, OnModuleDestroy {
         await this.account.beginRegister(ctx);
         return;
       case 'link':
-        if (args[0]) {
-          await this.account.link(ctx, args[0]);
-          return;
-        }
-        await ctx.say('Usage: /link 0912345678');
+        await this.account.promptAppLink(ctx);
         return;
       case 'unlink':
         await this.account.unlink(ctx);

@@ -36,6 +36,25 @@ export class TelegramNotifierService {
     return true;
   }
 
+  async notifyCourierId(courierId: string, text: string): Promise<boolean> {
+    if (!this.api.isConfigured) return false;
+    try {
+      const courier = await this.prisma.courier.findUnique({
+        where: { id: courierId },
+        select: { telegramId: true },
+      });
+      if (!courier?.telegramId) return false;
+      return (await this.api.sendMessage(courier.telegramId, text)) !== null;
+    } catch (err: unknown) {
+      this.logger.error(
+        `Telegram courier notification failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return false;
+    }
+  }
+
   async notifyChat(chatId: string | number, text: string): Promise<void> {
     await this.api.sendMessage(chatId, text);
   }

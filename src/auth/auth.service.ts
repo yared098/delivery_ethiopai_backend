@@ -217,8 +217,13 @@ export class AuthService {
     if (courier.status !== CourierStatus.APPROVED) {
       throw new UnauthorizedException(`Courier account is ${courier.status}`);
     }
-    await this.otp.requestOtp(phone, AccountType.COURIER, 'login', { courierId: courier.id });
-    return { message: 'OTP sent' };
+    const deliveryMethod = await this.otp.requestOtp(
+      phone,
+      AccountType.COURIER,
+      'login',
+      { courierId: courier.id },
+    );
+    return { message: 'OTP sent', deliveryMethod };
   }
 
   async verifyCourierOtp(phone: string, code: string, meta: Meta) {
@@ -324,7 +329,11 @@ async removeCustomerDeviceToken(customerId: string, token: string) {
   async requestCustomerOtp(phone: string) {
   const normalized = this.normalizePhone(phone);
 
-  await this.otp.requestOtp(phone, AccountType.CUSTOMER, 'login');
+  const deliveryMethod = await this.otp.requestOtp(
+    phone,
+    AccountType.CUSTOMER,
+    'login',
+  );
 
   const existing = await this.prisma.customer.findUnique({
     where: { phone: normalized },
@@ -334,6 +343,7 @@ async removeCustomerDeviceToken(customerId: string, token: string) {
     message: 'OTP sent',
     phone: normalized,
     isNewUser: !existing,
+    deliveryMethod,
   };
 }
 // ══════════════════════════════════════════════════

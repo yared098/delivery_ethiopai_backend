@@ -3,6 +3,7 @@ import {
   Controller,
   Post,
   Req,
+  Delete,
    Get,           // ← ADD
   Patch, 
   HttpCode,
@@ -24,6 +25,7 @@ import { CurrentCustomer } from 'src/common/decorators/current-customer.decorato
 import { RegisterCustomerDto } from './dto/register-customer.dto';
 import { RegisterDeviceTokenDto } from './dto/register-device-token.dto';
 import { CheckCourierPhoneDto } from './dto/check-courier-phone.dto';
+import { TelegramAccountLinkService } from '../telegram/telegram-account-link.service';
 
 class StaffLoginStep1Dto {
   @IsString()
@@ -43,7 +45,10 @@ class StaffLoginStep2Dto {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private auth: AuthService) {}
+  constructor(
+    private auth: AuthService,
+    private telegramAccountLink: TelegramAccountLinkService,
+  ) {}
 
   // ══════════════════════════════════════════════════
   // SUPER ADMIN (Phone + OTP only)
@@ -172,6 +177,46 @@ export class AuthController {
     @Body() dto: UpdateCustomerProfileDto,
   ) {
     return this.auth.updateCustomerProfile(customer.id, dto);
+  }
+
+  @UseGuards(CustomerJwtGuard)
+  @Get('customer/telegram')
+  getCustomerTelegramStatus(@CurrentCustomer() customer: any) {
+    return this.telegramAccountLink.getStatus(customer.id);
+  }
+
+  @UseGuards(CustomerJwtGuard)
+  @Post('customer/telegram/link')
+  @HttpCode(HttpStatus.OK)
+  createCustomerTelegramLink(@CurrentCustomer() customer: any) {
+    return this.telegramAccountLink.createLink(customer.id);
+  }
+
+  @UseGuards(CustomerJwtGuard)
+  @Delete('customer/telegram')
+  @HttpCode(HttpStatus.OK)
+  unlinkCustomerTelegram(@CurrentCustomer() customer: any) {
+    return this.telegramAccountLink.unlink(customer.id);
+  }
+
+  @UseGuards(CourierJwtGuard)
+  @Get('courier/telegram')
+  getCourierTelegramStatus(@CurrentCourier() courier: any) {
+    return this.telegramAccountLink.getCourierStatus(courier.id);
+  }
+
+  @UseGuards(CourierJwtGuard)
+  @Post('courier/telegram/link')
+  @HttpCode(HttpStatus.OK)
+  createCourierTelegramLink(@CurrentCourier() courier: any) {
+    return this.telegramAccountLink.createCourierLink(courier.id);
+  }
+
+  @UseGuards(CourierJwtGuard)
+  @Delete('courier/telegram')
+  @HttpCode(HttpStatus.OK)
+  unlinkCourierTelegram(@CurrentCourier() courier: any) {
+    return this.telegramAccountLink.unlinkCourier(courier.id);
   }
 
   @Post('logout-all')

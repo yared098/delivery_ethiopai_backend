@@ -19,6 +19,62 @@ revokes the previous session immediately; requests from the previous device rece
 | `accessToken` | 15 minutes | Authenticates requests | Header: `Authorization: Bearer <accessToken>` |
 | `refreshToken` | 30 days | Gets new access token | Body of `/auth/refresh` |
 
+### Customer Telegram connection
+
+Customer app requests below require `Authorization: Bearer <accessToken>`.
+
+1. `GET /auth/customer/telegram` returns the connection state:
+
+```json
+{ "connected": true, "otpDeliveryEnabled": true }
+```
+
+2. `POST /auth/customer/telegram/link` creates a one-time Telegram deep link:
+
+```json
+{
+	"connected": false,
+	"otpDeliveryEnabled": false,
+	"linkUrl": "https://t.me/<bot>?start=link_<one-time-token>",
+	"expiresInSeconds": 600
+}
+```
+
+Open `linkUrl` in Telegram and tap **Start** to finish linking. The token expires
+after the returned duration and can only be used once. Older Telegram links are
+not eligible for OTP delivery until they are paired again this way.
+
+3. `DELETE /auth/customer/telegram` disconnects the linked bot. Customer OTPs
+are sent to Telegram when `otpDeliveryEnabled` is true; otherwise they use SMS.
+Telegram delivery falls back to SMS if sending the Telegram message fails.
+`POST /auth/customer/otp/request` includes `deliveryMethod` (`telegram` or `sms`)
+in its response.
+
+### Courier Telegram connection
+
+Courier app requests below require a courier access token in the `Authorization`
+header:
+
+1. `GET /auth/courier/telegram` reports connection status and OTP eligibility:
+
+```json
+{ "connected": true, "otpDeliveryEnabled": true }
+```
+
+2. `POST /auth/courier/telegram/link` creates a short-lived, one-use Telegram
+deep link using the same response shape as the customer link endpoint. Open the
+returned `linkUrl` in Telegram and tap **Start** to finish pairing.
+
+3. `DELETE /auth/courier/telegram` disconnects the linked bot. Courier login
+OTPs are sent to Telegram when enabled, with SMS fallback; the courier OTP
+request response includes `deliveryMethod`. Courier job offers and status
+updates are also sent to a linked Telegram chat.
+
+Customer and courier Telegram links are mutually exclusive for a Telegram chat.
+Disconnect one account before linking the chat to another account.
+Apply the courier Telegram database migration before deploying:
+`npm run prisma:migrate:deploy`.
+
 ### Token Lifecycle
 
 ## Receiver location links
