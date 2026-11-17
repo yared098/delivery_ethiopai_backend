@@ -8,7 +8,7 @@ import { TokenService } from './token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { CustomerJwtStrategy } from './strategies/customer-jwt.strategy';
 import { CourierJwtStrategy } from './strategies/courier-jwt.strategy';
-import { NotificationsModule } from 'src/notifications/notifications.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { TelegramModule } from '../telegram/telegram.module';
 
 @Module({

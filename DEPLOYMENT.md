@@ -138,7 +138,6 @@ git pull --ff-only
 rm -rf dist
 RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=512" \
   ./node_modules/.bin/tsc -p tsconfig.json --outDir dist
-./node_modules/.bin/tsc-alias -p tsconfig.json
 
 # 4. Confirm the compiled entry point exists before touching the database
 test -f dist/src/main.js || { echo "BUILD FAILED; do not restart"; exit 1; }

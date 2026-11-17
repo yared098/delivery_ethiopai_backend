@@ -14,7 +14,7 @@ import { TokenService } from './token.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 // import { AccountType, CourierStatus, StaffRole } from '@prisma/client';
-import { NotificationsService } from 'src/notifications/notifications.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { AccountType, CourierStatus, StaffRole, Prisma } from '@prisma/client';
 
 interface Meta {
