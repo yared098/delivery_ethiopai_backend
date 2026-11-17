@@ -115,43 +115,47 @@ The `postgres_data`, `redis_data`, and `uploads_data` volumes persist across `do
 
 
 
-# fast deployemen ieth out docker 
+## Fast deploy on a shared Linux server (PM2, no Docker)
 
+Run these commands from the API repository root on the server. Ensure `.env` has
+the production `DATABASE_URL` and `REDIS_URL`. This fast path assumes dependencies
+are already installed. Do not run `pnpm install` when `package.json` and
+`pnpm-lock.yaml` have not changed; this shared host may hit its process/thread limit.
+If dependencies did change, resolve the host's process limit before installing them.
 
-# 1. Stop by name (safe if not running)
-pm2 stop delivery-ethiopia-api 2>/dev/null || true
+```bash
+set -euo pipefail
 
-# 2. Clean old build
+# 1. Fetch the release
+git pull --ff-only
+
+# 2. Validate the schema and generate Prisma Client with existing local binaries
+./node_modules/.bin/prisma validate
+
+./node_modules/.bin/prisma generate
+
+# 3. Compile with constrained resources (no Nest CLI child process)
 rm -rf dist
-
-# 3. Compile with tsc directly (no pnpm/nest child spawn → no EAGAIN)
 RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=512" \
   ./node_modules/.bin/tsc -p tsconfig.json --outDir dist
-
-# 4. Rewrite src/... path aliases
 ./node_modules/.bin/tsc-alias -p tsconfig.json
 
-# 5. Sanity check
-ls -la dist/src/main.js || { echo "❌ BUILD FAILED — do not restart"; exit 1; }
+# 4. Confirm the compiled entry point exists before touching the database
+test -f dist/src/main.js || { echo "BUILD FAILED; do not restart"; exit 1; }
 
-# 6. Restart (delete by name, not id)
+# 5. Apply pending production database migrations
+./node_modules/.bin/prisma migrate deploy
+
+# 6. Restart the API by process name
 pm2 delete delivery-ethiopia-api 2>/dev/null || true
 pm2 start dist/src/main.js --name delivery-ethiopia-api --cwd "$PWD"
 pm2 save
 
-# 7. Verify
-sleep 3
+# 7. Verify the process and recent startup logs
 pm2 status
 pm2 logs delivery-ethiopia-api --lines 30 --nostream
+```
 
-
-git pull
-pnpm tsc --noEmit                       # dry-run, no dist written; should be 0 errors
-RAYON_NUM_THREADS=1 UV_THREADPOOL_SIZE=1 NODE_OPTIONS="--max-old-space-size=512" \
-  ./node_modules/.bin/tsc -p tsconfig.json --outDir dist
-./node_modules/.bin/tsc-alias -p tsconfig.json
-ls -la dist/src/main.js
-pm2 delete delivery-ethiopia-api 2>/dev/null || true
-pm2 start dist/src/main.js --name delivery-ethiopia-api --cwd "$PWD"
-pm2 save
-pm2 logs delivery-ethiopia-api --lines 20 --nostream
+`prisma migrate deploy` applies only migrations not already recorded as applied;
+it does not reset or seed the production database. Back up the database before
+deploying schema changes.
