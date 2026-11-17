@@ -116,7 +116,7 @@ export class TelegramSessionService {
   reset(chatId: string | number): void {
     const session = this.get(chatId);
     session.step = 'idle';
-    session.data = {};
+    session.data = { lastBotMessageId: undefined };
     session.updatedAt = Date.now();
     this.sessions.set(session.chatId, session);
   }

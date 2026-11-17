@@ -400,6 +400,7 @@ export class OrdersService {
           receiverPhone,
           dto.sender.name,
           link.url,
+          dto.receiver?.name ?? order.receiverName ?? 'Receiver',
         );
         receiverLink = { ...link, smsSent };
         if (!smsSent) {
@@ -1006,6 +1007,7 @@ export class OrdersService {
             order.receiverPhone,
             order.senderName,
             link.url,
+            order.receiverName ?? 'Receiver',
           );
 
     if (smsSent === false) {

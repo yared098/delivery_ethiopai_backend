@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
+import { PrismaService } from '../../prisma/prisma.service';
 import { TelegramApiService } from '../../telegram/telegram-api.service';
 
 @Injectable()
@@ -10,9 +11,10 @@ export class AfroMessageService {
 
   // constructor(private config: ConfigService) {}
   constructor(
-  private config: ConfigService,
-  private telegram: TelegramApiService,
-) {}
+    private config: ConfigService,
+    private telegram: TelegramApiService,
+    private prisma: PrismaService,
+  ) {}
 
   // ══════════════════════════════════════════════════
   // CORE SEND
@@ -131,11 +133,30 @@ export class AfroMessageService {
     phone: string,
     senderName: string,
     linkUrl: string,
+    receiverName?: string,
   ): Promise<boolean> {
-    return this.send(
-      phone,
-      `${senderName} is sending you a package. Share your delivery location: ${linkUrl}`,
-    );
+    const safeReceiverName = receiverName?.trim() || 'Receiver';
+    const smsText = `${senderName} is sending ${safeReceiverName} a package. Share your delivery location: ${linkUrl}`;
+    const telegramText =
+      `📦 Receiver location request\n` +
+      `👤 Sender: ${senderName}\n` +
+      `📬 Receiver: ${safeReceiverName}\n` +
+      `🔗 Link: ${linkUrl}`;
+
+    try {
+      const customer = await this.prisma.customer.findFirst({
+        where: { phone },
+        select: { telegramId: true, name: true },
+      });
+
+      if (customer?.telegramId) {
+        await this.telegram.sendMessage(customer.telegramId, telegramText);
+      }
+    } catch (err) {
+      this.logger.warn(`Telegram receiver-link notify failed for ${phone}: ${String(err)}`);
+    }
+
+    return this.send(phone, smsText);
   }
 
   /** Public tracking link — sent to sender + receiver */
