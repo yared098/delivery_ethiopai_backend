@@ -249,7 +249,9 @@ export class ReceiverLinkController {
     const updated = await this.prisma.$transaction(async (tx) => {
       const existingOrder = await tx.order.findUnique({
         where: { id: link.orderId },
-        select: { senderLat: true, senderLng: true },
+        include: {
+          items: true,
+        },
       });
       if (!existingOrder) throw new NotFoundException('Order not found');
 
@@ -263,12 +265,39 @@ export class ReceiverLinkController {
             )
           : null;
 
+      const pricingBreakdown =
+        distanceKm != null
+          ? this.pricing.calculate({
+              distanceKm,
+              totalWeightKg: existingOrder.totalWeightKg ?? 0,
+              items: (existingOrder.items ?? []).map((it) => ({
+                type: it.type ?? 'OTHER',
+                quantity: it.quantity ?? 1,
+                isFragile: !!it.isFragile,
+                isRefrigerated: !!it.isRefrigerated,
+              })),
+            })
+          : {
+              baseFee: 0,
+              distanceCharge: 0,
+              weightCharge: 0,
+              itemSurcharges: 0,
+              subtotal: 0,
+              regionMultiplier: 1,
+              total: 0,
+              currency: 'ETB',
+            };
+
       const order = await tx.order.update({
         where: { id: link.orderId },
         data: {
           receiverLat: dto.lat,
           receiverLng: dto.lng,
           distanceKm,
+          deliveryFee: pricingBreakdown.total,
+          courierEarning: distanceKm != null ? this.pricing.courierEarning(pricingBreakdown.total) : 0,
+          platformFee: distanceKm != null ? this.pricing.platformFee(pricingBreakdown.total) : 0,
+          pricingBreakdown,
           receiverLocationSource: 'link',
           status: OrderStatus.PENDING_PAYMENT,
         },

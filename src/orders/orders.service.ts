@@ -134,6 +134,79 @@ export class OrdersService {
     return '251' + digits;
   }
 
+  private buildZeroPricingBreakdown() {
+    return {
+      baseFee: 0,
+      distanceCharge: 0,
+      weightCharge: 0,
+      itemSurcharges: 0,
+      subtotal: 0,
+      regionMultiplier: 1,
+      total: 0,
+      currency: 'ETB',
+    };
+  }
+
+  private recalcDeliveryPricing(order: {
+    senderLat?: number | null;
+    senderLng?: number | null;
+    receiverLat?: number | null;
+    receiverLng?: number | null;
+    totalWeightKg?: number | null;
+    items?: Array<{
+      type?: any;
+      quantity?: number;
+      isFragile?: boolean;
+      isRefrigerated?: boolean;
+    }>;
+  }) {
+    const senderLat = order.senderLat ?? null;
+    const senderLng = order.senderLng ?? null;
+    const receiverLat = order.receiverLat ?? null;
+    const receiverLng = order.receiverLng ?? null;
+
+    if (
+      senderLat == null ||
+      senderLng == null ||
+      receiverLat == null ||
+      receiverLng == null
+    ) {
+      return {
+        distanceKm: null,
+        deliveryFee: 0,
+        courierEarning: 0,
+        platformFee: 0,
+        pricingBreakdown: this.buildZeroPricingBreakdown(),
+      };
+    }
+
+    const distanceKm = this.pricing.distanceKm(
+      senderLat,
+      senderLng,
+      receiverLat,
+      receiverLng,
+    );
+
+    const pricingBreakdown = this.pricing.calculate({
+      distanceKm,
+      totalWeightKg: order.totalWeightKg ?? 0,
+      items: (order.items ?? []).map((it) => ({
+        type: it.type ?? 'OTHER',
+        quantity: it.quantity ?? 1,
+        isFragile: !!it.isFragile,
+        isRefrigerated: !!it.isRefrigerated,
+      })),
+    });
+
+    return {
+      distanceKm,
+      deliveryFee: pricingBreakdown.total,
+      courierEarning: this.pricing.courierEarning(pricingBreakdown.total),
+      platformFee: this.pricing.platformFee(pricingBreakdown.total),
+      pricingBreakdown,
+    };
+  }
+
   // ══════════════════════════════════════════════════
   // CREATE
   // ══════════════════════════════════════════════════
@@ -189,20 +262,26 @@ export class OrdersService {
       );
     }
 
-    const pricingBreakdown = this.pricing.calculate({
-      distanceKm: distanceKm || 0,
-      totalWeightKg,
-      items: dto.items.map((it) => ({
-        type: it.type ?? 'OTHER',
-        quantity: it.quantity || 1,
-        isFragile: it.isFragile,
-        isRefrigerated: it.isRefrigerated,
-      })),
-    });
+    const pricingBreakdown = distanceKm != null
+      ? this.pricing.calculate({
+          distanceKm,
+          totalWeightKg,
+          items: dto.items.map((it) => ({
+            type: it.type ?? 'OTHER',
+            quantity: it.quantity || 1,
+            isFragile: it.isFragile,
+            isRefrigerated: it.isRefrigerated,
+          })),
+        })
+      : this.buildZeroPricingBreakdown();
 
     const deliveryFee = pricingBreakdown.total;
-    const courierEarning = this.pricing.courierEarning(deliveryFee);
-    const platformFee = this.pricing.platformFee(deliveryFee);
+    const courierEarning = distanceKm != null
+      ? this.pricing.courierEarning(deliveryFee)
+      : 0;
+    const platformFee = distanceKm != null
+      ? this.pricing.platformFee(deliveryFee)
+      : 0;
 
     // ══════════════════════════════════════════════════
     // 🆕 AUTO-RESOLVE BRANCHES FROM LOCATION
@@ -669,7 +748,10 @@ export class OrdersService {
   // UPDATE
   // ══════════════════════════════════════════════════
   async update(id: string, dto: UpdateOrderDto, currentUser: any) {
-    const existing = await this.prisma.order.findUnique({ where: { id } });
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+      include: { items: true },
+    });
     if (!existing) throw new NotFoundException('Order not found');
     await this.assertOrderAccess(id, currentUser);
 
@@ -689,18 +771,24 @@ export class OrdersService {
     if (dto.receiverLng !== undefined) data.receiverLng = dto.receiverLng;
     const receiverLat = dto.receiverLat ?? existing.receiverLat;
     const receiverLng = dto.receiverLng ?? existing.receiverLng;
-    data.distanceKm =
-      existing.senderLat != null &&
-      existing.senderLng != null &&
-      receiverLat != null &&
-      receiverLng != null
-        ? this.pricing.distanceKm(
-            existing.senderLat,
-            existing.senderLng,
-            receiverLat,
-            receiverLng,
-          )
-        : null;
+    const senderLat = existing.senderLat;
+    const senderLng = existing.senderLng;
+
+    const priceRecalc = this.recalcDeliveryPricing({
+      senderLat,
+      senderLng,
+      receiverLat,
+      receiverLng,
+      totalWeightKg: existing.totalWeightKg,
+      items: existing.items ?? [],
+    });
+
+    data.distanceKm = priceRecalc.distanceKm;
+    data.deliveryFee = priceRecalc.deliveryFee;
+    data.courierEarning = priceRecalc.courierEarning;
+    data.platformFee = priceRecalc.platformFee;
+    data.pricingBreakdown = priceRecalc.pricingBreakdown;
+
     if (dto.packageDescription !== undefined) data.packageDescription = dto.packageDescription;
     if (dto.paymentParty !== undefined) data.paymentParty = dto.paymentParty;
     if (dto.codAmount !== undefined) data.codAmount = dto.codAmount;
