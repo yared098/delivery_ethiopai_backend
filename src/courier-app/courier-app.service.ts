@@ -995,6 +995,7 @@ export class CourierAppService {
         description: it.description,
         quantity: it.quantity,
         weightKg: it.weightKg,
+        photoUrl: it.photoUrl,
       })),
       assignedAt: order.assignedAt,
       pickedUpAt: order.pickedUpAt,

@@ -165,7 +165,9 @@ export class TelegramApiService {
         return await this.call<TelegramMessage>('sendPhoto', {
           chat_id: chatId,
           photo,
-          ...(caption ? { caption } : {}),
+          ...(caption
+            ? { caption: formatTelegramText(caption), parse_mode: 'HTML' }
+            : {}),
           ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
         });
       }
@@ -186,7 +188,8 @@ export class TelegramApiService {
       if (caption) {
         const safeCaption =
           caption.length > 1024 ? caption.slice(0, 1020) + '...' : caption;
-        form.append('caption', safeCaption);
+        form.append('caption', formatTelegramText(safeCaption));
+        form.append('parse_mode', 'HTML');
       }
       if (replyMarkup) {
         form.append('reply_markup', JSON.stringify(replyMarkup));
@@ -227,7 +230,8 @@ export class TelegramApiService {
       const isLast = i === chunks.length - 1;
       const result = await this.call<{ message_id: number }>('sendMessage', {
         chat_id: chatId,
-        text: chunks[i],
+        text: formatTelegramText(chunks[i]),
+        parse_mode: 'HTML',
         disable_web_page_preview: true,
         ...(isLast && replyMarkup ? { reply_markup: replyMarkup } : {}),
       });
@@ -273,7 +277,8 @@ export class TelegramApiService {
     const result = await this.call<TelegramMessage | boolean>('editMessageText', {
       chat_id: chatId,
       message_id: messageId,
-      text,
+      text: formatTelegramText(text),
+      parse_mode: 'HTML',
       disable_web_page_preview: true,
       ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
     });
@@ -360,4 +365,21 @@ export function splitText(text: string, size: number): string[] {
   }
   if (remaining.length) chunks.push(remaining);
   return chunks;
+}
+
+function formatTelegramText(text: string): string {
+  return text
+    .replace(/\\n/g, '\n')
+    .replace(/\\"/g, '"')
+    .split(/(\*[^*\n]+\*)/g)
+    .map((part) => {
+      const isBold = part.startsWith('*') && part.endsWith('*') && part.length > 2;
+      const content = isBold ? part.slice(1, -1) : part;
+      const escaped = content
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return isBold ? `<b>${escaped}</b>` : escaped;
+    })
+    .join('');
 }

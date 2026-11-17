@@ -670,6 +670,7 @@ export class OrdersService {
       this.prisma.order.findMany({
         where,
         include: {
+          items: true,
           sender: { select: { id: true, name: true, phone: true } },
           receiver: { select: { id: true, name: true, phone: true } },
           courier: {
