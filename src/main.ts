@@ -35,7 +35,7 @@ async function bootstrap() {
     'https://truestethiopian.smrestaurant.com',
     'https://admin.truestexpress.smrestaurant.com',
     'https://truestexpress.smrestaurant.com',
-    'https://trustexpress.public.truestexpress.smrestaurant.com'
+    'https://trustexpress.public.truestexpress.smrestaurant.com',
 
     // ── Backend itself (legacy form + admin tools) ──
     'https://api.truestexpress.smrestaurant.com',
