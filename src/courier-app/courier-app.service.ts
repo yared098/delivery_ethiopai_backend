@@ -212,7 +212,7 @@ export class CourierAppService {
    * Only orders with receiverLat/receiverLng filled are included (for map pins).
    * Limited detail is returned (no items) so the courier cannot see exact contents.
    */
-  async getNearbyOrders(
+  async getNearbyOrders_old(
     courierId: string,
     lat: number,
     lng: number,
@@ -303,6 +303,165 @@ export class CourierAppService {
     };
   }
 
+    /**
+   * Returns orders near the courier's location that are:
+   *   - unassigned (courierId IS NULL)
+   *   - in a payable state (PAID or PENDING_PAYMENT)
+   *   - not soft-deleted
+   *   - not already offered to THIS courier (avoids showing declined jobs again)
+   *   - have valid receiver coordinates (required to compute distance)
+   *
+   * 🔒 Receiver coordinates and full receiver details are NOT returned here.
+   *    The courier only sees the pickup side + package stats so they can
+   *    decide whether to accept the job. The receiver's exact location
+   *    is revealed only after assignment (see getJob()).
+   *
+   * Assigned orders are NEVER returned here. To list a courier's own
+   * assigned jobs use listJobs().
+   */
+  async getNearbyOrders(
+    courierId: string,
+    lat: number,
+    lng: number,
+    radiusKm = 10,
+    page = 1,
+    limit = 20,
+  ) {
+    // ── validation
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new BadRequestException('lat and lng are required numbers');
+    }
+    if (lat < 3.4 || lat > 14.9 || lng < 32.9 || lng > 48.0) {
+      throw new BadRequestException('Coordinates outside Ethiopia');
+    }
+
+    const courier = await this.prisma.courier.findUnique({
+      where: { id: courierId },
+      select: { id: true, name: true, status: true, isOnline: true },
+    });
+    if (!courier) throw new NotFoundException('Courier not found');
+    if (courier.status !== 'APPROVED') {
+      throw new ForbiddenException('Courier not approved');
+    }
+
+    const skip = (page - 1) * limit;
+    const radius = Math.max(0.1, Math.min(radiusKm, 200));
+
+    // ── parameterized query (no SQL injection) ──
+    // NOTE: we still SELECT receiverLat/Lng internally to compute distance,
+    //       but they are stripped from the response below.
+    const orders = await this.prisma.$queryRaw<
+      Array<Record<string, any>>
+    >`
+      SELECT
+        o.id,
+        o."trackingNumber",
+        o.status,
+        o."senderName",
+        o."senderPhone",
+        o."senderAddress",
+        o."senderLat",
+        o."senderLng",
+        o."packageDescription",
+        o."totalWeightKg",
+        o."courierEarning",
+        o."createdAt",
+        o."courierId",
+        (6371 * acos(
+          LEAST(1.0, GREATEST(-1.0,
+            cos(radians(${lat})) * cos(radians(o."receiverLat")) *
+            cos(radians(o."receiverLng") - radians(${lng})) +
+            sin(radians(${lat})) * sin(radians(o."receiverLat"))
+          ))
+        )) AS distance_km
+      FROM "orders" o
+      WHERE o."receiverLat"  IS NOT NULL
+        AND o."receiverLng"  IS NOT NULL
+        AND o."receiverLat"  <> 0
+        AND o."receiverLng"  <> 0
+        AND o."courierId"    IS NULL          -- 🚫 never show assigned orders
+        AND o."status"       IN ('PAID', 'PENDING_PAYMENT')
+        AND o."deletedAt"    IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "order_offers" oo
+          WHERE oo."orderId"   = o.id
+            AND oo."courierId" = ${courierId}
+            AND oo."status"    IN ('PENDING', 'DECLINED')
+        )
+        AND (6371 * acos(
+          LEAST(1.0, GREATEST(-1.0,
+            cos(radians(${lat})) * cos(radians(o."receiverLat")) *
+            cos(radians(o."receiverLng") - radians(${lng})) +
+            sin(radians(${lat})) * sin(radians(o."receiverLat"))
+          ))
+        )) <= ${radius}
+      ORDER BY distance_km ASC
+      LIMIT ${limit} OFFSET ${skip};
+    `;
+
+    const totalRows = await this.prisma.$queryRaw<Array<{ cnt: bigint }>>`
+      SELECT COUNT(*) AS cnt
+      FROM "orders" o
+      WHERE o."receiverLat"  IS NOT NULL
+        AND o."receiverLng"  IS NOT NULL
+        AND o."receiverLat"  <> 0
+        AND o."receiverLng"  <> 0
+        AND o."courierId"    IS NULL
+        AND o."status"       IN ('PAID', 'PENDING_PAYMENT')
+        AND o."deletedAt"    IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM "order_offers" oo
+          WHERE oo."orderId"   = o.id
+            AND oo."courierId" = ${courierId}
+            AND oo."status"    IN ('PENDING', 'DECLINED')
+        )
+        AND (6371 * acos(
+          LEAST(1.0, GREATEST(-1.0,
+            cos(radians(${lat})) * cos(radians(o."receiverLat")) *
+            cos(radians(o."receiverLng") - radians(${lng})) +
+            sin(radians(${lat})) * sin(radians(o."receiverLat"))
+          ))
+        )) <= ${radius};
+    `;
+
+    const total = Number(totalRows[0]?.cnt ?? 0);
+
+    return {
+      data: orders.map((o) => ({
+        id: o.id,
+        trackingNumber: o.trackingNumber,
+        status: o.status,
+
+        // 🚫 never assigned
+        isAssigned: false,
+        assignedCourierId: null,
+
+        // ✅ Only pickup + package info — no receiver PII at discovery time
+        senderName: o.senderName,
+        senderPhone: o.senderPhone,
+        senderAddress: o.senderAddress,
+        senderLat: o.senderLat,
+        senderLng: o.senderLng,
+
+        packageDescription: o.packageDescription,
+        totalWeightKg:
+          o.totalWeightKg != null ? Number(o.totalWeightKg) : null,
+        courierEarning:
+          o.courierEarning != null ? Number(o.courierEarning) : 0,
+        createdAt: o.createdAt,
+        distanceKm: Number(o.distance_km),
+
+        // 🔒 Receiver location intentionally omitted:
+        //    receiverName, receiverPhone, receiverAddress,
+        //    receiverLat, receiverLng — revealed only after assignment.
+        hasReceiverLocation: true, // safe flag: "we do have coords"
+      })),
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+    };
+  }
   async getJob(courierId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, courierId },
