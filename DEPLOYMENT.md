@@ -124,6 +124,7 @@ are already installed. Do not run `pnpm install` when `package.json` and
 If dependencies did change, resolve the host's process limit before installing them.
 
 ```bash
+
 set -euo pipefail
 
 # 1. Fetch the release

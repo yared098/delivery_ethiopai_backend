@@ -189,7 +189,7 @@ export class CourierAppController {
    * Get unassigned orders near the courier's current location.
    * Returns limited order details (no items) suitable for map pins.
    */
-  @Get('orders/nearby')
+  @Get(['orders/nearby', 'jobs/nearby'])
   @HttpCode(HttpStatus.OK)
   listNearbyOrders(
     @CurrentCourier() c: any,
