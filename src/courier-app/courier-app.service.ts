@@ -204,6 +204,105 @@ export class CourierAppService {
     };
   }
 
+  // ═════════════════════════════════════════════════════
+  // NEARBY ORDERS (for courier map view)
+  // ═════════════════════════════════════════════════════
+  /**
+   * Returns unassigned orders near the courier's location.
+   * Only orders with receiverLat/receiverLng filled are included (for map pins).
+   * Limited detail is returned (no items) so the courier cannot see exact contents.
+   */
+  async getNearbyOrders(
+    courierId: string,
+    lat: number,
+    lng: number,
+    radiusKm = 10,
+    page = 1,
+    limit = 20,
+  ) {
+    // Validate courier exists and is approved
+    const courier = await this.prisma.courier.findUnique({
+      where: { id: courierId },
+      select: { id: true, name: true, status: true, isOnline: true },
+    });
+    if (!courier) throw new NotFoundException('Courier not found');
+    if (courier.status !== 'APPROVED') {
+      throw new ForbiddenException('Courier not approved');
+    }
+
+    const skip = (page - 1) * limit;
+
+    const orders = await this.prisma.$queryRawUnsafe(`
+      SELECT
+        o.*,
+        ob.name AS origin_branch_name,
+        ob.code AS origin_branch_code,
+        db.name AS dest_branch_name,
+        db.code AS dest_branch_code,
+        (6371 * acos(
+          cos(radians(${lat})) * cos(radians(o."receiverLat")) *
+          cos(radians(o."receiverLng") - radians(${lng})) +
+          sin(radians(${lat})) * sin(radians(o."receiverLat"))
+        )) AS distance_km
+      FROM "orders" o
+      LEFT JOIN "branches" ob ON o."originBranchId" = ob.id
+      LEFT JOIN "branches" db ON o."destBranchId" = db.id
+      WHERE o."receiverLat" IS NOT NULL
+        AND o."receiverLng" IS NOT NULL
+        AND o."courierId" IS NULL
+        AND o."status" IN ('PAID', 'PENDING_PAYMENT')
+        AND (6371 * acos(
+          cos(radians(${lat})) * cos(radians(o."receiverLat")) *
+          cos(radians(o."receiverLng") - radians(${lng})) +
+          sin(radians(${lat})) * sin(radians(o."receiverLat"))
+        )) <= ${radiusKm}
+      ORDER BY distance_km
+      LIMIT ${limit} OFFSET ${skip}
+    `);
+
+    const totalResult = await this.prisma.$queryRawUnsafe(`
+      SELECT COUNT(*) AS cnt FROM "orders" o
+      WHERE o."receiverLat" IS NOT NULL
+        AND o."receiverLng" IS NOT NULL
+        AND o."courierId" IS NULL
+        AND o."status" IN ('PAID', 'PENDING_PAYMENT')
+        AND (6371 * acos(
+          cos(radians(${lat})) * cos(radians(o."receiverLat")) *
+          cos(radians(o."receiverLng") - radians(${lng})) +
+          sin(radians(${lat})) * sin(radians(o."receiverLat"))
+        )) <= ${radiusKm}
+    `);
+
+    const total = Number((totalResult as any[])[0].cnt);
+
+    return {
+      data: (orders as any[]).map((o: any) => ({
+        id: o.id,
+        trackingNumber: o.trackingNumber,
+        status: o.status,
+        senderName: o.senderName,
+        senderPhone: o.senderPhone,
+        senderAddress: o.senderAddress,
+        senderLat: o.senderLat,
+        senderLng: o.senderLng,
+        receiverName: o.receiverName,
+        receiverPhone: o.receiverPhone,
+        receiverAddress: o.receiverAddress,
+        receiverLat: o.receiverLat,
+        receiverLng: o.receiverLng,
+        packageDescription: o.packageDescription,
+        totalWeightKg: o.totalWeightKg,
+        courierEarning: o.courierEarning,
+        createdAt: o.createdAt,
+        distanceKm: parseFloat(o.distance_km),
+      })),
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit),
+    };
+  }
+
   async getJob(courierId: string, orderId: string) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, courierId },

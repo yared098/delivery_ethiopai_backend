@@ -19,6 +19,7 @@ import { ToggleOnlineDto } from './dto/toggle-online.dto';
 import { ScanQrDto } from './dto/scan-qr.dto';
 import { ScanDeliverDto } from './dto/scan-deliver.dto';
 import { EarningStatus } from '@prisma/client';
+import { NearbyOrdersQueryDto } from './dto/nearby-orders-query.dto';
 
 @Controller('courier')
 @UseGuards(CourierJwtGuard)
@@ -178,6 +179,30 @@ export class CourierAppController {
   @Get('jobs/:id')
   getJob(@CurrentCourier() c: any, @Param('id') id: string) {
     return this.courier.getJob(c.id, id);
+  }
+
+
+  // ═════════════════════════════════════════════════════
+  // NEARBY ORDERS (for courier map view)
+  // ═════════════════════════════════════════════════════
+  /**
+   * Get unassigned orders near the courier's current location.
+   * Returns limited order details (no items) suitable for map pins.
+   */
+  @Get('orders/nearby')
+  @HttpCode(HttpStatus.OK)
+  listNearbyOrders(
+    @CurrentCourier() c: any,
+    @Query() query: NearbyOrdersQueryDto,
+  ) {
+    return this.courier.getNearbyOrders(
+      c.id,
+      query.lat,
+      query.lng,
+      query.radius,
+      query.page,
+      query.limit,
+    );
   }
 
   // ══════════════════════════════════════════════════
