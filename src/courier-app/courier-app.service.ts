@@ -381,7 +381,6 @@ export class CourierAppService {
         AND o."receiverLng"  <> 0
         AND o."courierId"    IS NULL          -- 🚫 never show assigned orders
         AND o."status"       IN ('PAID', 'PENDING_PAYMENT')
-        AND o."deletedAt"    IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM "order_offers" oo
           WHERE oo."orderId"   = o.id
@@ -408,7 +407,6 @@ export class CourierAppService {
         AND o."receiverLng"  <> 0
         AND o."courierId"    IS NULL
         AND o."status"       IN ('PAID', 'PENDING_PAYMENT')
-        AND o."deletedAt"    IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM "order_offers" oo
           WHERE oo."orderId"   = o.id
