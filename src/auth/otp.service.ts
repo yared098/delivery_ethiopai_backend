@@ -30,6 +30,16 @@ export class OtpService implements OnModuleDestroy {
     this.redis.disconnect();
   }
 
+  // ════════════════════════════════════════════════════════════════════
+  // TEST / PLAY STORE REVIEW — fixed OTP for specific phone numbers
+  // ════════════════════════════════════════════════════════════════════
+  private readonly TEST_PHONES = ['251988107722', '251956309313'];
+  private readonly TEST_OTP_CODE = '123456';
+
+  private isTestPhone(phone: string): boolean {
+    return this.TEST_PHONES.includes(phone);
+  }
+
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('251') && digits.length === 12) return digits;
@@ -57,7 +67,9 @@ export class OtpService implements OnModuleDestroy {
       );
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    // Use fixed test OTP for Play Store review phone numbers
+    const isTest = this.isTestPhone(phone);
+    const code = isTest ? this.TEST_OTP_CODE : Math.floor(100000 + Math.random() * 900000).toString();
     const codeHash = await argon2.hash(code);
     const ttl = Number(this.config.get('OTP_TTL_SECONDS') || 300);
     const expiresAt = new Date(Date.now() + ttl * 1000);
@@ -78,6 +90,11 @@ export class OtpService implements OnModuleDestroy {
         courierId: extraIds.courierId,
       },
     });
+
+    if (isTest) {
+      console.log(`[TEST OTP] Phone: ${phone} | Code: ${this.TEST_OTP_CODE} | Expires in ${Math.ceil(ttl / 60)} min`);
+      return 'sms';
+    }
 
     if (accountType === AccountType.CUSTOMER) {
       const customer = await this.prisma.customer.findUnique({
