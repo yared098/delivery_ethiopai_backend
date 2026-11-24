@@ -30,6 +30,19 @@ export class OtpService implements OnModuleDestroy {
     this.redis.disconnect();
   }
 
+  // ═════════════════════════════════════════════════════════════════════
+  // GOOGLE PLAY STORE TEST NUMBERS (default OTP: 123456)
+  // Only for review/testing — do not use in production without review
+  // ══════════════════════════════════════════════════════════════════════
+  private readonly TEST_PHONES: Record<string, string> = {
+    '251988107722': '123456', // 0988107722
+    '251956309313': '123456', // 0956309313
+  };
+
+  private isTestPhone(phone: string): boolean {
+    return phone in this.TEST_PHONES;
+  }
+
   private normalizePhone(phone: string): string {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('251') && digits.length === 12) return digits;
@@ -55,6 +68,33 @@ export class OtpService implements OnModuleDestroy {
         'Too many OTP requests. Try again later.',
         HttpStatus.TOO_MANY_REQUESTS,
       );
+    }
+
+    // ── Test phone numbers: fixed OTP 123456, no SMS sent ──
+    if (this.isTestPhone(phone)) {
+      const testCode = this.TEST_PHONES[phone];
+      const codeHash = await argon2.hash(testCode);
+      const ttl = Number(this.config.get('OTP_TTL_SECONDS') || 300);
+      const expiresAt = new Date(Date.now() + ttl * 1000);
+
+      await this.prisma.otpCode.updateMany({
+        where: { phone, accountType, purpose, used: false },
+        data: { used: true },
+      });
+
+      await this.prisma.otpCode.create({
+        data: {
+          phone,
+          accountType,
+          codeHash,
+          purpose,
+          expiresAt,
+          staffId: extraIds.staffId,
+          courierId: extraIds.courierId,
+        },
+      });
+
+      return 'sms';
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -125,6 +165,18 @@ export class OtpService implements OnModuleDestroy {
     purpose = 'login',
   ): Promise<string> {
     const phone = this.normalizePhone(rawPhone);
+
+    // ── Test phone numbers: accept 123456 directly ──
+    if (this.isTestPhone(phone)) {
+      if (code !== this.TEST_PHONES[phone]) {
+        throw new BadRequestException('Invalid OTP');
+      }
+      await this.prisma.otpCode.updateMany({
+        where: { phone, accountType, purpose, used: false },
+        data: { used: true },
+      });
+      return phone;
+    }
 
     const record = await this.prisma.otpCode.findFirst({
       where: { phone, accountType, purpose, used: false },
