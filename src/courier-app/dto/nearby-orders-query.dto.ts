@@ -18,9 +18,9 @@ export class NearbyOrdersQueryDto {
   @IsOptional()
   @IsNumber()
   @Min(0.5)
-  @Max(100)
+  @Max(10)
   @Transform(({ value }) => (value ? parseFloat(value) : 10))
-  radius?: number; // search radius in km, default 10 km
+  radius?: number; // search radius in km, capped at 10 km
 
   @IsOptional()
   @Type(() => Number)

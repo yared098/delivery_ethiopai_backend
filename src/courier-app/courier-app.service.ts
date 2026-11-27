@@ -230,9 +230,10 @@ export class CourierAppService {
       throw new ForbiddenException('Courier not approved');
     }
 
+    const searchRadiusKm = Math.min(radiusKm, 10);
     const skip = (page - 1) * limit;
 
-    const orders = await this.prisma.$queryRawUnsafe(`
+    const orders = await this.prisma.$queryRaw<any[]>`
       SELECT
         o.*,
         ob.name AS origin_branch_name,
@@ -255,12 +256,12 @@ export class CourierAppService {
           cos(radians(${lat})) * cos(radians(o."receiverLat")) *
           cos(radians(o."receiverLng") - radians(${lng})) +
           sin(radians(${lat})) * sin(radians(o."receiverLat"))
-        )) <= ${radiusKm}
+        )) <= ${searchRadiusKm}
       ORDER BY distance_km
       LIMIT ${limit} OFFSET ${skip}
-    `);
+    `;
 
-    const totalResult = await this.prisma.$queryRawUnsafe(`
+    const totalResult = await this.prisma.$queryRaw<Array<{ cnt: bigint }>>`
       SELECT COUNT(*) AS cnt FROM "orders" o
       WHERE o."receiverLat" IS NOT NULL
         AND o."receiverLng" IS NOT NULL
@@ -270,13 +271,13 @@ export class CourierAppService {
           cos(radians(${lat})) * cos(radians(o."receiverLat")) *
           cos(radians(o."receiverLng") - radians(${lng})) +
           sin(radians(${lat})) * sin(radians(o."receiverLat"))
-        )) <= ${radiusKm}
-    `);
+        )) <= ${searchRadiusKm}
+    `;
 
-    const total = Number((totalResult as any[])[0].cnt);
+    const total = Number(totalResult[0].cnt);
 
     return {
-      data: (orders as any[]).map((o: any) => ({
+      data: orders.map((o: any) => ({
         id: o.id,
         trackingNumber: o.trackingNumber,
         status: o.status,
