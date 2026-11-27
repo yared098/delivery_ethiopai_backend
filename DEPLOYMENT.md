@@ -91,7 +91,7 @@ docker compose ps
 docker compose logs --tail=100 api
 ```
 
-## Useful operations
+## Useful operations 
 
 ```bash
 # Follow API logs

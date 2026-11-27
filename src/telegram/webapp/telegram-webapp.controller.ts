@@ -9,6 +9,8 @@ import {
   BadRequestException,
   Logger,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { TelegramWebAppService } from './telegram-webapp.service';
@@ -19,6 +21,14 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AccountType, PaymentParty } from '@prisma/client';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import { mkdirSync } from 'fs';
+import { randomUUID } from 'crypto';
+
+const ALLOWED_MIME = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
 @Public()
 @Controller('telegram/webapp')
@@ -160,6 +170,77 @@ export class TelegramWebAppController {
         err instanceof Error ? err.message : 'Order creation failed',
       );
     }
+  }
+
+  // ═══════════════════════════════════════════════════
+  // UPLOAD PHOTO via Mini App
+  // POST /api/v1/telegram/webapp/uploads
+  // Authorization: tma <initData>
+  // ═══════════════════════════════════════════════════
+  @Post('uploads')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: (_req, _file, cb) => {
+          const uploadDir = join(process.cwd(), 'uploads', 'orders');
+          mkdirSync(uploadDir, { recursive: true });
+          cb(null, uploadDir);
+        },
+        filename: (_req, file, cb) => {
+          const ext = extname(file.originalname).toLowerCase();
+          cb(null, `${randomUUID()}${ext}`);
+        },
+      }),
+      fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_MIME.includes(file.mimetype)) {
+          return cb(
+            new BadRequestException('Only JPEG, PNG, WebP allowed'),
+            false,
+          );
+        }
+        cb(null, true);
+      },
+      limits: { fileSize: MAX_FILE_SIZE },
+    }),
+  )
+  async uploadPhoto(
+    @Headers('authorization') authHeader: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    // 1. Validate Telegram initData
+    if (!authHeader?.startsWith('tma ')) {
+      throw new UnauthorizedException('Missing Telegram authorization header');
+    }
+    const initData = authHeader.slice(4).trim();
+    const tgUser = this.webApp.validateInitData(initData);
+
+    // 2. Find the linked customer
+    const customer = await this.prisma.customer.findFirst({
+      where: { telegramId: tgUser.telegramId },
+    });
+    if (!customer) {
+      throw new UnauthorizedException(
+        'Your Telegram is not linked to a Deliver Ethiopia account.',
+      );
+    }
+    if (!customer.isActive) {
+      throw new UnauthorizedException('Your account is suspended.');
+    }
+
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    this.logger.log(
+      `Photo uploaded for customer ${customer.id}: ${file.filename}`,
+    );
+
+    return {
+      url: `/uploads/orders/${file.filename}`,
+      filename: file.filename,
+      size: file.size,
+      mimetype: file.mimetype,
+    };
   }
 }
 
@@ -460,7 +541,7 @@ function buildOrderFormHtml(apiBase: string): string {
       showToast('⏳ Uploading photo…');
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch('${apiBase}/api/v1/uploads', {
+      const res = await fetch('${apiBase}/api/v1/telegram/webapp/uploads', {
         method: 'POST',
         headers: { Authorization: 'tma ' + tg.initData },
         body: form,
