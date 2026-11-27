@@ -87,3 +87,27 @@ the previous active link and sends the new link by SMS by default. Send
 
 The resend response includes `link` and `smsSent` (`true` when the provider accepted
 the SMS, `false` when delivery was not accepted, or `null` when SMS was disabled).
+
+## Receiver delivery confirmation
+
+The courier scans the order at the destination using
+`POST /courier/orders/:id/scan-deliver` or `POST /courier/jobs/:id/scan-deliver`.
+This moves the order to `OUT_FOR_DELIVERY`; it does not mark the delivery complete.
+
+The receiver must sign in to the customer app and scan the order QR code, then
+submit the scanned QR text:
+
+```http
+POST /customer/orders/scan-delivery
+Authorization: Bearer <customer access token>
+Content-Type: application/json
+```
+
+```json
+{ "code": "https://<web-app>/q/<tracking-number>?s=<signature>" }
+```
+
+The API validates the QR signature and checks that the authenticated customer is
+the order receiver (by receiver account or, for older orders without a linked
+receiver account, by matching phone number). A valid receiver scan changes the
+order to `DELIVERED`, records receiver confirmation, and releases courier earnings.

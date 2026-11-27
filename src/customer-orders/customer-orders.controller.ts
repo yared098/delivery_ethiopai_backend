@@ -13,6 +13,7 @@ import { CurrentCustomer } from '../common/decorators/current-customer.decorator
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerOrderDto } from './dto/create-customer-order.dto';
+import { ConfirmDeliveryDto } from './dto/confirm-delivery.dto';
 import { AccountType } from '@prisma/client';
 
 @Controller('customer/orders')
@@ -95,6 +96,19 @@ export class CustomerOrdersController {
       limit: take,
       pages: Math.ceil(total / take),
     };
+  }
+
+  @Post('scan-delivery')
+  confirmDelivery(
+    @Body() dto: ConfirmDeliveryDto,
+    @CurrentCustomer() customer: any,
+  ) {
+    return this.orders.confirmReceiverDelivery(
+      customer.id,
+      customer.phone,
+      dto.code,
+      dto.signature,
+    );
   }
 
   // ══════════════════════════════════════════════════

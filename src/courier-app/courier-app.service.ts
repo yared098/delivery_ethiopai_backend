@@ -901,8 +901,8 @@ export class CourierAppService {
   }
 
   /**
-   * Courier scans QR code at delivery destination to confirm delivery.
-   * Releases earnings and marks order DELIVERED.
+   * Courier scans at the destination to mark the order ready for receiver
+   * confirmation. Only the authenticated receiver can complete delivery.
    */
   async scanDeliver(
     courierId: string,
@@ -934,19 +934,27 @@ export class CourierAppService {
         `Cannot deliver a ${order.status.toLowerCase()} order`,
       );
     }
+    if (
+      order.status !== OrderStatus.PICKED_UP &&
+      order.status !== OrderStatus.IN_TRANSIT &&
+      order.status !== OrderStatus.OUT_FOR_DELIVERY
+    ) {
+      throw new BadRequestException(
+        'Order must be picked up before delivery confirmation',
+      );
+    }
 
-    // If order was somehow not assigned to this courier, reassign on delivery
     const wasAssignedToOther =
       order.courierId != null && order.courierId !== courier.id;
 
     const updatedOrder = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.order.update({
-        where: { id: order.id },
+      const result = await tx.order.updateMany({
+        where: { id: order.id, status: order.status },
         data: {
           courierId: courier.id,
-          status: OrderStatus.DELIVERED,
-          deliveredAt: new Date(),
-          receiverConfirmed: dto.receiverConfirmed ?? true,
+          status: OrderStatus.OUT_FOR_DELIVERY,
+          deliveredAt: null,
+          receiverConfirmed: false,
           ...(dto.deliveryOtp ? { deliveryOtp: dto.deliveryOtp } : {}),
           ...(dto.deliveryPhotoUrl
             ? { deliveryPhotoUrl: dto.deliveryPhotoUrl }
@@ -962,6 +970,33 @@ export class CourierAppService {
               }
             : {}),
         },
+      });
+      if (result.count !== 1) {
+        throw new BadRequestException(
+          'Order status changed; scan the order QR again',
+        );
+      }
+
+      await tx.orderEvent.create({
+        data: {
+          orderId: order.id,
+          status: OrderStatus.OUT_FOR_DELIVERY,
+          note: `Courier ${courier.name} is waiting for receiver confirmation`,
+          actorType: AccountType.COURIER,
+          actorId: courier.id,
+          actorName: courier.name,
+          isPublic: true,
+          location:
+            dto.lat != null && dto.lng != null
+              ? `${dto.lat},${dto.lng}`
+              : null,
+          lat: dto.lat,
+          lng: dto.lng,
+        },
+      });
+
+      const updated = await tx.order.findUniqueOrThrow({
+        where: { id: order.id },
         include: {
           items: true,
           originBranch: { select: { id: true, name: true, code: true } },
@@ -976,54 +1011,6 @@ export class CourierAppService {
         },
       });
 
-      await tx.orderEvent.create({
-        data: {
-          orderId: order.id,
-          status: OrderStatus.DELIVERED,
-          note: `Delivered by courier ${courier.name} via QR scan confirmation`,
-          actorType: AccountType.COURIER,
-          actorId: courier.id,
-          actorName: courier.name,
-          isPublic: true,
-          location:
-            dto.lat != null && dto.lng != null
-              ? `${dto.lat},${dto.lng}`
-              : null,
-          lat: dto.lat,
-          lng: dto.lng,
-        },
-      });
-
-      // Release earnings for this courier
-      if (order.courierEarning > 0) {
-        const myEarning = await tx.courierEarning.findFirst({
-          where: { orderId: order.id, courierId: courier.id },
-        });
-
-        if (myEarning) {
-          await tx.courierEarning.update({
-            where: { id: myEarning.id },
-            data: {
-              status: EarningStatus.RELEASED,
-              releasedAt: new Date(),
-            },
-          });
-        } else {
-          await tx.courierEarning.create({
-            data: {
-              courierId: courier.id,
-              orderId: order.id,
-              amount: order.courierEarning,
-              currency: 'ETB',
-              type: 'DELIVERY',
-              status: EarningStatus.RELEASED,
-              releasedAt: new Date(),
-            },
-          });
-        }
-      }
-
-      // If reassigned on delivery, cancel previous courier's pending earning
       if (wasAssignedToOther && order.courierId) {
         await tx.courierEarning.updateMany({
           where: {
@@ -1035,46 +1022,41 @@ export class CourierAppService {
         });
       }
 
-      // Increment completed deliveries counter for courier
-      await tx.courier.update({
-        where: { id: courier.id },
-        data: {
-          totalDeliveries: { increment: 1 },
-          ...(dto.lat != null && dto.lng != null
-            ? {
-                currentLat: dto.lat,
-                currentLng: dto.lng,
-                lastSeenAt: new Date(),
-              }
-            : {}),
-        },
-      });
+      if (dto.lat != null && dto.lng != null) {
+        await tx.courier.update({
+          where: { id: courier.id },
+          data: {
+            currentLat: dto.lat,
+            currentLng: dto.lng,
+            lastSeenAt: new Date(),
+          },
+        });
+      }
 
       return updated;
     });
 
     try {
       this.trackingWs.broadcastStatusChange(order.id, {
-        status: OrderStatus.DELIVERED,
-        note: `Delivered by courier ${courier.name}`,
+        status: OrderStatus.OUT_FOR_DELIVERY,
+        note: 'Waiting for receiver confirmation',
         lat: dto.lat,
         lng: dto.lng,
         timestamp: new Date().toISOString(),
       });
-      this.trackingWs.emitStatus(order.trackingNumber, OrderStatus.DELIVERED);
-      this.trackingWs.broadcastOrderEnd(order.id, {
-        outcome: 'DELIVERED',
-        message: `Order #${order.trackingNumber} successfully delivered by ${courier.name}`,
-      });
+      this.trackingWs.emitStatus(
+        order.trackingNumber,
+        OrderStatus.OUT_FOR_DELIVERY,
+      );
       await this.notifications.notifyOrderStatus(updatedOrder);
     } catch (err: any) {
-      this.logger.warn(`Post-delivery notification error: ${err.message}`);
+      this.logger.warn(`Receiver-confirmation notification error: ${err.message}`);
     }
 
     const formattedJob = this.publicJob(updatedOrder, true);
     return {
       success: true,
-      message: `Order #${order.trackingNumber} successfully marked delivered`,
+      message: `Order #${order.trackingNumber} is waiting for receiver confirmation`,
       order: formattedJob,
       job: formattedJob,
       data: formattedJob,

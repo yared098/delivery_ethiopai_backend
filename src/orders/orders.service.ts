@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -36,6 +37,8 @@ import {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private prisma: PrismaService,
     private tracking: TrackingNumberService,
@@ -223,11 +226,8 @@ export class OrdersService {
     const actorId = currentUser?.id ?? null;
     const actorName = currentUser?.name ?? 'System';
 
-    const receiverComplete =
-      !!dto.receiver.name &&
-      !!dto.receiver.address &&
-      dto.receiver.lat != null &&
-      dto.receiver.lng != null;
+    const receiverLocationProvided =
+      dto.receiver.lat != null && dto.receiver.lng != null;
 
     const totalWeightKg = dto.items.reduce(
       (sum, it) => sum + it.weightKg * (it.quantity || 1),
@@ -241,7 +241,7 @@ export class OrdersService {
     const isRefrigerated = dto.items.some((it) => it.isRefrigerated);
 
     let status: OrderStatus = OrderStatus.DRAFT;
-    if (receiverComplete) {
+    if (receiverLocationProvided) {
       status = OrderStatus.PENDING_PAYMENT;
     } else {
       status = OrderStatus.AWAITING_RECEIVER_LOCATION;
@@ -375,7 +375,7 @@ export class OrdersService {
           receiverAddress: dto.receiver.address,
           receiverLat: dto.receiver.lat,
           receiverLng: dto.receiver.lng,
-          receiverLocationSource: receiverComplete ? 'manual' : null,
+          receiverLocationSource: receiverLocationProvided ? 'manual' : null,
 
           // 🆕 USE RESOLVED VALUES
           originBranchId: resolved.originBranchId,
@@ -468,7 +468,7 @@ export class OrdersService {
 
     // 3. Ask the receiver for their location when the order has no destination.
     let receiverLink: any = null;
-    if (!receiverComplete) {
+    if (!receiverLocationProvided) {
       try {
         const link = await this.receiverLinks.createForOrder(
           order.id,
@@ -504,7 +504,7 @@ export class OrdersService {
     }
 
     // 5. If receiver has phone and location was provided, send them the tracking link too
-    if (receiverPhone && trackingUrl && receiverComplete) {
+    if (receiverPhone && trackingUrl && receiverLocationProvided) {
       try {
         await this.sms.sendTrackingLink(
           receiverPhone,
@@ -794,11 +794,38 @@ export class OrdersService {
     if (dto.paymentParty !== undefined) data.paymentParty = dto.paymentParty;
     if (dto.codAmount !== undefined) data.codAmount = dto.codAmount;
 
-    const updated = await this.prisma.order.update({ where: { id }, data });
+    const receiverLocationProvided =
+      receiverLat != null && receiverLng != null;
+    const locationNowProvided =
+      existing.status === OrderStatus.AWAITING_RECEIVER_LOCATION &&
+      receiverLocationProvided;
+
+    if (locationNowProvided) {
+      data.status = OrderStatus.PENDING_PAYMENT;
+      data.receiverLocationSource = 'manual';
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.update({ where: { id }, data });
+      if (locationNowProvided) {
+        await tx.orderEvent.create({
+          data: {
+            orderId: id,
+            status: OrderStatus.PENDING_PAYMENT,
+            note: 'Receiver location added',
+            actorType: AccountType.STAFF,
+            actorId: currentUser.id,
+            actorName: currentUser.name,
+            isPublic: true,
+          },
+        });
+      }
+      return order;
+    });
 
     this.trackingWs.broadcastStatusChange(id, {
       status: updated.status,
-      note: 'Order updated',
+      note: locationNowProvided ? 'Receiver location added' : 'Order updated',
       timestamp: new Date().toISOString(),
     });
 
@@ -1080,6 +1107,10 @@ export class OrdersService {
     if (!order) throw new NotFoundException('Order not found');
     await this.assertOrderAccess(id, currentUser);
 
+    if (order.receiverLat != null && order.receiverLng != null) {
+      throw new BadRequestException('Receiver location is already provided');
+    }
+
     if (order.status !== OrderStatus.AWAITING_RECEIVER_LOCATION) {
       throw new BadRequestException('Order does not need receiver location');
     }
@@ -1104,6 +1135,178 @@ export class OrdersService {
     }
 
     return { link, smsSent };
+  }
+
+  async confirmReceiverDelivery(
+    customerId: string,
+    customerPhone: string,
+    code: string,
+    explicitSignature?: string,
+  ) {
+    const scannedCode = code.trim();
+    let trackingNumber: string;
+    let signature = explicitSignature;
+
+    try {
+      const url = new URL(scannedCode);
+      const segments = url.pathname.split('/').filter(Boolean);
+      const qrIndex = segments.lastIndexOf('q');
+      if (qrIndex < 0 || qrIndex !== segments.length - 2) {
+        throw new BadRequestException('Invalid order QR code');
+      }
+      trackingNumber = decodeURIComponent(segments[qrIndex + 1]);
+      signature ??= url.searchParams.get('s') ?? undefined;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      const [value, query] = scannedCode.split('?', 2);
+      if (!value || value.includes('/') || !query) {
+        throw new BadRequestException('Invalid order QR code');
+      }
+      trackingNumber = value.trim();
+      signature ??= new URLSearchParams(query).get('s') ?? undefined;
+    }
+
+    if (
+      !signature ||
+      !this.qr.verifySignature(trackingNumber, signature, 'qr')
+    ) {
+      throw new BadRequestException('Invalid order QR signature');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { trackingNumber },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+
+    const normalizedCustomerPhone = this.normalizePhone(customerPhone);
+    if (
+      order.receiverId !== customerId &&
+      (order.receiverId != null ||
+        order.receiverPhone !== normalizedCustomerPhone)
+    ) {
+      throw new ForbiddenException('This order does not belong to your account');
+    }
+
+    if (!order.courierId) {
+      throw new BadRequestException('Order has no courier assigned');
+    }
+    const courierId = order.courierId;
+    if (order.receiverConfirmed) {
+      throw new BadRequestException('Receiver has already confirmed this order');
+    }
+    if (
+      order.status !== OrderStatus.OUT_FOR_DELIVERY &&
+      order.status !== OrderStatus.DELIVERED
+    ) {
+      throw new BadRequestException(
+        'Order is not ready for receiver confirmation',
+      );
+    }
+
+    const now = new Date();
+    const completedOrder = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          courierId,
+          status: order.status,
+          receiverConfirmed: false,
+        },
+        data: {
+          status: OrderStatus.DELIVERED,
+          deliveredAt: order.deliveredAt ?? now,
+          receiverConfirmed: true,
+        },
+      });
+      if (result.count !== 1) {
+        throw new BadRequestException(
+          'Order status changed; scan the order QR again',
+        );
+      }
+
+      if (order.status === OrderStatus.OUT_FOR_DELIVERY) {
+        if (order.courierEarning > 0) {
+          const earning = await tx.courierEarning.findFirst({
+            where: { orderId: order.id, courierId },
+          });
+          if (earning) {
+            await tx.courierEarning.update({
+              where: { id: earning.id },
+              data: {
+                status: EarningStatus.RELEASED,
+                releasedAt: now,
+              },
+            });
+          } else {
+            await tx.courierEarning.create({
+              data: {
+                courierId,
+                orderId: order.id,
+                amount: order.courierEarning,
+                currency: 'ETB',
+                type: 'DELIVERY',
+                status: EarningStatus.RELEASED,
+                releasedAt: now,
+              },
+            });
+          }
+        }
+
+        await tx.courier.update({
+          where: { id: courierId },
+          data: { totalDeliveries: { increment: 1 } },
+        });
+      }
+
+      await tx.orderEvent.create({
+        data: {
+          orderId: order.id,
+          status: OrderStatus.DELIVERED,
+          note: 'Delivery confirmed by receiver QR scan',
+          actorType: AccountType.CUSTOMER,
+          actorId: customerId,
+          actorName: order.receiverName ?? 'Receiver',
+          isPublic: true,
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: { id: order.id },
+        include: {
+          items: true,
+          courier: { select: { id: true, name: true, phone: true } },
+          events: {
+            where: { isPublic: true },
+            orderBy: { createdAt: 'desc' },
+            take: 30,
+          },
+        },
+      });
+    });
+
+    try {
+      this.trackingWs.broadcastStatusChange(order.id, {
+        status: OrderStatus.DELIVERED,
+        note: 'Delivery confirmed by receiver',
+        timestamp: now.toISOString(),
+      });
+      this.trackingWs.emitStatus(order.trackingNumber, OrderStatus.DELIVERED);
+      this.trackingWs.broadcastOrderEnd(order.id, {
+        outcome: 'DELIVERED',
+        message: `Order #${order.trackingNumber} confirmed by receiver`,
+      });
+      await this.notifications.notifyOrderStatus(completedOrder);
+    } catch (error) {
+      this.logger.warn(
+        `Post-confirmation notification error: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return {
+      success: true,
+      message: `Order #${order.trackingNumber} delivery confirmed`,
+      order: completedOrder,
+    };
   }
 
   // ══════════════════════════════════════════════════

@@ -34,7 +34,8 @@ export class ScanDeliverDto {
   deliveryOtp?: string;
 
   /**
-   * Receiver confirmation flag.
+   * Deprecated. Delivery completion requires the authenticated receiver to
+   * scan the order QR code.
    */
   @IsOptional()
   @IsBoolean()
